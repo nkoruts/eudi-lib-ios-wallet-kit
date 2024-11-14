@@ -153,7 +153,6 @@ public final class EudiWallet: ObservableObject, @unchecked Sendable {
 	func prepareIssuing(docType: String?, displayName: String?, promptMessage: String? = nil) async throws -> (IssueRequest, OpenId4VCIService, String) {
 		guard let openID4VciIssuerUrl else { throw WalletError(description: "issuer Url not defined")}
 		guard openID4VciConfig?.clientId != nil else { throw WalletError(description: "clientId not defined")}
-		guard openID4VciConfig?.authFlowRedirectionURI != nil else { throw WalletError(description: "Auth flow Redirect URI not defined")}
 		let id: String = UUID().uuidString
 		let issueReq = try await Self.authorizedAction(action: {
 			return try await beginIssueDocument(id: id, privateKeyType: useSecureEnclave ? .secureEnclaveP256 : .x963EncodedP256, saveToStorage: false)
@@ -176,6 +175,34 @@ public final class EudiWallet: ObservableObject, @unchecked Sendable {
 		let data = try await openId4VCIService.issueDocument(docType: docType, format: format, promptMessage: promptMessage, useSecureEnclave: useSecureEnclave)
 		return try await finalizeIssuing(id: id, data: data, docType: docType, format: format, issueReq: issueReq, openId4VCIService: openId4VCIService)
 	}
+    
+    @discardableResult public func issueDocument(docType: String, format: DataFormat = .cbor, issueDocument: (BindingKey) async throws -> CredentialIssuanceResponse) async throws -> WalletStorage.Document {
+        let (issueReq, openId4VCIService, id) = try await prepareIssuing(docType: docType, displayName: nil)
+        
+        try await openId4VCIService.initSecurityKeys(true)
+        guard let bindingKey = await openId4VCIService.bindingKey else {
+            throw WalletError(description: "Invalid bindingKey")
+        }
+        let issuanceResponse = try await issueDocument(bindingKey)
+        let issuanceOutcome = try handleIssuanceResponse(issuanceResponse)
+
+        return try await finalizeIssuing(id: id, data: issuanceOutcome, docType: docType, format: format, issueReq: issueReq, openId4VCIService: openId4VCIService)
+    }
+    
+    private func handleIssuanceResponse(_ issuanceResponse: CredentialIssuanceResponse) throws -> IssuanceOutcome {
+        guard let result = issuanceResponse.credentialResponses.first else {
+            throw WalletError(description: "No credential response results available")
+        }
+        switch result {
+        case .issued(let credential, _):
+            guard let data = Data(base64URLEncoded: credential) else {
+                throw WalletError(description: "Invalid credential")
+            }
+            return .issued(data, nil)
+        case .deferred:
+            throw WalletError(description: "Unsupported document status (deferred) ")
+        }
+    }
 
 	/// Request a deferred issuance based on a stored deferred document. On success, the deferred document is replaced with the issued document.
 	///
