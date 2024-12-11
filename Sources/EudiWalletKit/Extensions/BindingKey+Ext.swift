@@ -22,8 +22,12 @@ public extension BindingKey {
     private func generateProof(
         algorithm: JWSAlgorithm,
         jwk: JWK,
-        privateKey: SecKey
+        privateKey: SigningKeyProxy
     ) throws -> String? {
+        
+        guard case let .secKey(secKey) = privateKey else {
+            throw ValidationError.error(reason: "Wrong security key")
+        }
         
         let header = try JWSHeader(parameters: [
             "typ": "openid4vci-proof+jwt",
@@ -38,7 +42,7 @@ public extension BindingKey {
         guard let signatureAlgorithm = SignatureAlgorithm(rawValue: algorithm.name) else {
             throw CredentialIssuanceError.cryptographicAlgorithmNotSupported
         }
-        guard let signer = Signer(signatureAlgorithm: signatureAlgorithm, key: privateKey) else {
+        guard let signer = Signer(signatureAlgorithm: signatureAlgorithm, key: secKey) else {
             throw ValidationError.error(reason: "Unable to create JWS signer")
         }
         
