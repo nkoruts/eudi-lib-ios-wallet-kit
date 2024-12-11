@@ -1,3 +1,23 @@
+## v0.8.2
+- Update for OpenID4VCI Draft14 (eudi-lib-ios-openid4vci-swift updated to tag 0.9.0)
+- Use @MainActor for issuing methods due to authentication UI
+
+## v0.8.1
+### Breaking changes
+- `SecureArea` protocol static factory method added: `nonisolated public static func create(storage: any SecureKeyStorage) -> Self`
+- Removed `SecureArea` protocol initializer: `init(storage: any SecureKeyStorage)` (use the static factory method instead)
+- Removed property `storage` from `SecureArea` protocol
+
+## v0.8.0
+### Secure area refactoring
+####  `EudiWallet` changes:
+- `init` added `secureAreas`: `[SecureArea]` optional parameter (default is `["SecureEnclave", "Software"]`)
+- `issueDocument`: added `keyOptions` optional parameter to specify the secure area name and other key options for the key creation
+- `issueDocumentsByOfferUrl`: added `docTypeKeyOptions` optional parameter to specify the secure area name and other key options for each doc type 
+
+## v0.7.8
+- `RequestItems` conforms to `Equatable` protocol
+
 ## v0.7.7
  - Fix issue [#118](https://github.com/eu-digital-identity-wallet/eudi-lib-ios-wallet-kit/issues/118)
  ### Breaking changes
@@ -142,10 +162,10 @@ e.g. 	wallet.serviceName = "wallet_dev"
 
 The flow is supported by existing methods:
 
-1 - An issue offer url is scanned. The following method is called: `public func resolveOfferUrlDocTypes(uriOffer: String, format: DataFormat = .cbor, useSecureEnclave: Bool = true) async throws -> OfferedIssueModel`
+1 - An issue offer url is scanned. The following method is called: `public func resolveOfferUrlDocTypes(uriOffer: String, format: DataFormat = .cbor) async throws -> OfferedIssueModel`
 ### (Breaking change, the return value type is `OfferedIssueModel` instead of `[OfferedDocModel]`)
 
-2 - If `OfferedIssueModel.isTxCodeRequired` is true, the call to `issueDocumentsByOfferUrl` must include the transaction code (parameter `txCodeValue`). 
+2 - If `OfferedIssueModel.isTxCodeRequired` is true, the call to `` must include the transaction code (parameter `txCodeValue`). 
 
 - Note: for the clientId value the `EudiWallet/openID4VciClientId` is used.
 
@@ -208,11 +228,11 @@ OpenID4VCI: Fixed issuing with https://dev.issuer.eudiw.dev
 ### Added functions:
 /// Resolve OpenID4VCI offer URL document types. Resolved offer metadata are cached
 
-` public func resolveOfferUrlDocTypes(uriOffer: String, format: DataFormat = .cbor, useSecureEnclave: Bool = true) async throws -> [OfferedDocModel] `
+` public func resolveOfferUrlDocTypes(uriOffer: String, format: DataFormat = .cbor) async throws -> [OfferedDocModel] `
 
 /// Issue documents by offer URI.
 
-`public func issueDocumentsByOfferUrl(offerUri: String, docTypes: [OfferedDocModel], format: DataFormat, promptMessage: String? = nil, useSecureEnclave: Bool = true, claimSet: ClaimSet? = nil) async throws -> [WalletStorage.Document] `
+`public func issueDocumentsByOfferUrl(offerUri: String, docTypes: [OfferedDocModel], docTypeKeyOptions: [String: KeyOptions]? = nil, format: DataFormat, promptMessage: String? = nil, claimSet: ClaimSet? = nil) async throws -> [WalletStorage.Document] `
 
 ### Breaking change: 
  `// PresentationSession
