@@ -35,14 +35,14 @@ public extension BindingKey {
             "jwk": jwk.toDictionary()
         ])
         let payloadDictionary: [String: Any] = [
-            JWTClaimNames.issuedAt: Int(Date().timeIntervalSince1970.rounded())
+            JWTClaimNames.issuedAt: Int(Date().timeIntervalSince1970.rounded()),
+            JWTClaimNames.audience: "https://localhost:8080/"
         ]
         let payload = Payload(try payloadDictionary.toThrowingJSONData())
         
         guard let signatureAlgorithm = SignatureAlgorithm(rawValue: algorithm.name) else {
             throw CredentialIssuanceError.cryptographicAlgorithmNotSupported
         }
-        
         let signer = try await createSigner(
             with: header,
             and: payload,
