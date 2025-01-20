@@ -214,17 +214,12 @@ public final class EudiWallet: ObservableObject, @unchecked Sendable {
     
     @discardableResult public func issueDocument(docType: String, format: DocDataFormat = .cbor, keyOptions: KeyOptions? = nil, issueDocument: (BindingKey) async throws -> CredentialIssuanceResponse) async throws -> WalletStorage.Document {
         let openId4VCIService = try await prepareIssuing(id: UUID().uuidString, docType: docType, displayName: nil, keyOptions: keyOptions, disablePrompt: false, promptMessage: nil)
-        
         let configuration = try await openId4VCIService.getCredentialIssuingConfiguration(docType, scope: nil, identifier: nil)
-        // Get credentials configuration
-        // init security keys
-//        try await openId4VCIService.initSecurityKeys(algSupported: [JWSAlgorithm(.ES256).name])
         guard let bindingKey = await openId4VCIService.bindingKey else {
             throw WalletError(description: "Invalid bindingKey")
         }
         let issuanceResponse = try await issueDocument(bindingKey)
         let issuanceOutcome = try handleIssuanceResponse(issuanceResponse, configuration: configuration, openId4VCIService: openId4VCIService)
-
         return try await finalizeIssuing(issueOutcome: issuanceOutcome, docType: docType, format: format, issueReq: openId4VCIService.issueReq, openId4VCIService: openId4VCIService)
     }
     
