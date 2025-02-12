@@ -232,8 +232,8 @@ public final class EudiWallet: ObservableObject, @unchecked Sendable {
             throw WalletError(description: "Unsupported document status (deferred) ")
         }
         
-        if case let .string(strBase64) = credential, let data = Data(base64URLEncoded: strBase64) {
-            return .issued(data, nil, configuration)
+        if case let .string(strBase64) = credential {
+            return .issued(Data(base64URLEncoded: strBase64), strBase64, configuration)
         } else if case let .json(json) = credential {
             return .issued(try JSONEncoder().encode(json), nil, configuration)
         } else {
