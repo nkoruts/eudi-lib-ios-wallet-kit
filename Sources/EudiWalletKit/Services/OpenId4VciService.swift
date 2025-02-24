@@ -305,10 +305,9 @@ public final class OpenId4VCIService: NSObject, @unchecked Sendable, ASWebAuthen
 		}
 	}
 
-	private func handleCredentialResponse(credential: Credential, format: String?, configuration: CredentialConfiguration) throws -> IssuanceOutcome {
+	func handleCredentialResponse(credential: Credential, format: String?, configuration: CredentialConfiguration) throws -> IssuanceOutcome {
 		logger.info("Credential issued with format \(format ?? "unknown")")
 		if case let .string(str) = credential  {
-			// logger.info("Issued credential data:\n\(strBase64)")
 			return .issued(Data(base64URLEncoded: str), str, configuration)
 		} else if case let .json(json) = credential {
 			return .issued(try JSONEncoder().encode(json), nil, configuration)

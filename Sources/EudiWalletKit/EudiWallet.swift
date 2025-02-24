@@ -219,11 +219,11 @@ public final class EudiWallet: ObservableObject, @unchecked Sendable {
             throw WalletError(description: "Invalid bindingKey")
         }
         let issuanceResponse = try await issueDocument(bindingKey)
-        let issuanceOutcome = try handleIssuanceResponse(issuanceResponse, configuration: configuration, openId4VCIService: openId4VCIService)
+        let issuanceOutcome = try await handleIssuanceResponse(issuanceResponse, configuration: configuration, openId4VCIService: openId4VCIService)
         return try await finalizeIssuing(issueOutcome: issuanceOutcome, docType: docType, format: format, issueReq: openId4VCIService.issueReq, openId4VCIService: openId4VCIService)
     }
     
-    private func handleIssuanceResponse(_ issuanceResponse: CredentialIssuanceResponse, configuration: CredentialConfiguration, openId4VCIService: OpenId4VCIService) throws -> IssuanceOutcome {
+    private func handleIssuanceResponse(_ issuanceResponse: CredentialIssuanceResponse, configuration: CredentialConfiguration, openId4VCIService: OpenId4VCIService) async throws -> IssuanceOutcome {
         guard let result = issuanceResponse.credentialResponses.first else {
             throw WalletError(description: "No credential response results available")
         }
@@ -232,13 +232,7 @@ public final class EudiWallet: ObservableObject, @unchecked Sendable {
             throw WalletError(description: "Unsupported document status (deferred) ")
         }
         
-        if case let .string(strBase64) = credential, let data = Data(base64URLEncoded: strBase64) {
-            return .issued(data, nil, configuration)
-        } else if case let .json(json) = credential {
-            return .issued(try JSONEncoder().encode(json), nil, configuration)
-        } else {
-            throw WalletError(description: "Invalid credential")
-        }
+        return try await openId4VCIService.handleCredentialResponse(credential: credential, format: nil, configuration: configuration)
     }
 
 	/// Request a deferred issuance based on a stored deferred document. On success, the deferred document is replaced with the issued document.
