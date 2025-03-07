@@ -177,17 +177,11 @@ public final class OpenId4VCIService: NSObject, @unchecked Sendable, ASWebAuthen
 		}
 	}
     
-    func getCredentialIssuingConfiguration(_ docType: String?, scope: String?, identifier: String?) async throws -> CredentialConfiguration {
+    func getCredentialIssuingConfiguration(_ docType: String?, metadata: CredentialIssuerMetadata, scope: String? = nil, identifier: String? = nil) async throws -> CredentialConfiguration {
         let credentialIssuerIdentifier = try CredentialIssuerId(credentialIssuerURL)
-        let issuerMetadata = await CredentialIssuerMetadataResolver(fetcher: Fetcher(session: urlSession)).resolve(source: .credentialIssuer(credentialIssuerIdentifier))
-        switch issuerMetadata {
-        case .success(let metaData):
-            let configuration = try getCredentialIdentifier(credentialIssuerIdentifier: credentialIssuerIdentifier.url.absoluteString.replacingOccurrences(of: "https://", with: ""), issuerDisplay: metaData.display, credentialsSupported: metaData.credentialsSupported, identifier: identifier, docType: docType, scope: scope)
-            try await initSecurityKeys(algSupported: Set(configuration.algValuesSupported))
-            return configuration
-        case .failure:
-            throw WalletError(description: "Invalid issuer metadata")
-        }
+        let configuration = try getCredentialIdentifier(credentialIssuerIdentifier: credentialIssuerIdentifier.url.absoluteString.replacingOccurrences(of: "https://", with: ""), issuerDisplay: metadata.display, credentialsSupported: metadata.credentialsSupported, identifier: identifier, docType: docType, scope: scope)
+        try await initSecurityKeys(algSupported: Set(configuration.algValuesSupported))
+        return configuration
     }
 	
 	private func issueOfferedCredentialInternal(_ authorized: AuthorizedRequest, issuer: Issuer, configuration: CredentialConfiguration, claimSet: ClaimSet?) async throws -> IssuanceOutcome {
