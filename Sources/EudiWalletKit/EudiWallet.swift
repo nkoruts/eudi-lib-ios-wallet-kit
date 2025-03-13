@@ -212,14 +212,15 @@ public final class EudiWallet: ObservableObject, @unchecked Sendable {
 		return try await finalizeIssuing(issueOutcome: data.0, docType: docType, format: data.1, issueReq: openId4VCIService.issueReq, openId4VCIService: openId4VCIService)
 	}
 	
-	@discardableResult public func issueDocument(docType: String, format: DocDataFormat = .cbor, keyOptions: KeyOptions? = nil, issueDocument: (BindingKey) async throws -> CredentialIssuanceResponse) async throws -> WalletStorage.Document {
-		let openId4VCIService = try await prepareIssuing(id: UUID().uuidString, docType: docType, displayName: nil, keyOptions: keyOptions, disablePrompt: false, promptMessage: nil)
-		let configuration = try await openId4VCIService.getCredentialIssuingConfiguration(docType, scope: nil, identifier: nil)
-		guard let bindingKey = await openId4VCIService.bindingKey else { throw WalletError(description: "Invalid bindingKey") }
-		let issuanceResponse = try await issueDocument(bindingKey)
-		let issuanceOutcome = try await handleIssuanceResponse(issuanceResponse, configuration: configuration, openId4VCIService: openId4VCIService)
-		return try await finalizeIssuing(issueOutcome: issuanceOutcome, docType: docType, format: format, issueReq: openId4VCIService.issueReq, openId4VCIService: openId4VCIService)
-	}
+	@discardableResult public func issueDocument(docType: String, format: DocDataFormat = .cbor, keyOptions: KeyOptions? = nil, issueCredentialConfiguration: (() async throws -> CredentialIssuerMetadata), issueCredentials: ((BindingKey) async throws -> CredentialIssuanceResponse)) async throws -> WalletStorage.Document {
+			let openId4VCIService = try await prepareIssuing(id: UUID().uuidString, docType: docType, displayName: nil, keyOptions: keyOptions, disablePrompt: false, promptMessage: nil)
+			let metadata = try await issueCredentialConfiguration()
+			let configuration = try await openId4VCIService.getCredentialIssuingConfiguration(docType, metadata: metadata)
+			guard let bindingKey = await openId4VCIService.bindingKey else { throw WalletError(description: "Invalid bindingKey") }
+			let issuanceResponse = try await issueCredentials(bindingKey)
+			let issuanceOutcome = try await handleIssuanceResponse(issuanceResponse, configuration: configuration, openId4VCIService: openId4VCIService)
+			return try await finalizeIssuing(issueOutcome: issuanceOutcome, docType: docType, format: format, issueReq: openId4VCIService.issueReq, openId4VCIService: openId4VCIService)
+		}
 	
 	private func handleIssuanceResponse(_ issuanceResponse: CredentialIssuanceResponse, configuration: CredentialConfiguration, openId4VCIService: OpenId4VCIService) async throws -> IssuanceOutcome {
 		guard let result = issuanceResponse.credentialResponses.first else { throw WalletError(description: "No credential response results available") }
