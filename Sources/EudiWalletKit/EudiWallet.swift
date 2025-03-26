@@ -176,7 +176,7 @@ public final class EudiWallet: ObservableObject, @unchecked Sendable {
 	///   - docType: document type
 	///   - promptMessage: Prompt message for biometric authentication (optional)
 	/// - Returns: (Issue request key pair, vci service, unique id)
-	func prepareIssuing(id: String, docType: String?, displayName: String?, keyOptions: KeyOptions?, disablePrompt: Bool, promptMessage: String?) async throws -> OpenId4VCIService {
+	func prepareIssuing(id: String, docType: String?, displayName: String? = nil, keyOptions: KeyOptions? = nil, disablePrompt: Bool = false, promptMessage: String? = nil) async throws -> OpenId4VCIService {
 		guard let openID4VciIssuerUrl else { throw WalletError(description: "issuer Url not defined")}
 		guard openID4VciConfig?.clientId != nil else { throw WalletError(description: "clientId not defined")}
 		guard openID4VciConfig?.authFlowRedirectionURI != nil else { throw WalletError(description: "Auth flow Redirect URI not defined")}
