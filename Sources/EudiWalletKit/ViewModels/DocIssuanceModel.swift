@@ -11,11 +11,21 @@ import MdocDataModel18013
 public struct DocIssuanceModel {
     public let docType: String
     public let dataFormats: [DocIssuanceDataFormat]
+    
+    public init(docType: String, dataFormats: [DocIssuanceDataFormat]) {
+        self.docType = docType
+        self.dataFormats = dataFormats
+    }
 }
 
 public struct DocIssuanceDataFormat {
     public let format: DocDataFormat
     public let identifier: String
+    
+    public init(format: DocDataFormat, identifier: String) {
+        self.format = format
+        self.identifier = identifier
+    }
 }
 
 public struct DocIssuanceRequest: Codable {
