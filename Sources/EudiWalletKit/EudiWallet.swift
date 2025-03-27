@@ -220,7 +220,7 @@ public final class EudiWallet: ObservableObject, @unchecked Sendable {
         for dataFormat in parameters.dataFormats {
             let configuration = try await openId4VCIService.getCredentialIssuingConfiguration(docType, metadata: metadata, identifier: dataFormat.identifier)
             guard let proof = try await openId4VCIService.bindingKey?.getProof() else { continue }
-            proofs.append(DocIssuanceRequestProof(jwt: proof, proofType: "jwk", format: dataFormat.format.rawValue))
+            proofs.append(DocIssuanceRequestProof(jwt: proof, proofType: "jwk", format: dataFormat.format.description))
             configurations.append(configuration)
         }
         let issuanceRequest = DocIssuanceRequest(doctype: docType, proofs: proofs)
