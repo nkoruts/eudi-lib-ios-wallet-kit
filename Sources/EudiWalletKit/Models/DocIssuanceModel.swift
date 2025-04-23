@@ -9,32 +9,32 @@ import OpenID4VCI
 import MdocDataModel18013
 
 public struct DocIssuanceModel {
-	public let docType: String
-	public let dataFormats: [DocIssuanceDataFormat]
-	
-	public init(docType: String, dataFormats: [DocIssuanceDataFormat]) {
-		self.docType = docType
-		self.dataFormats = dataFormats
-	}
+    public let docType: String
+    public let dataFormats: [DocIssuanceDataFormat]
+    
+    public init(docType: String, dataFormats: [DocIssuanceDataFormat]) {
+        self.docType = docType
+        self.dataFormats = dataFormats
+    }
 }
 
 public struct DocIssuanceDataFormat {
-	public let format: DocDataFormat
-	public let identifier: String
-	
-	public init(format: DocDataFormat, identifier: String) {
-		self.format = format
-		self.identifier = identifier
-	}
+    public let format: DocDataFormat
+    public let identifier: String
+    
+    public init(format: DocDataFormat, identifier: String) {
+        self.format = format
+        self.identifier = identifier
+    }
 }
 
 public struct DocIssuanceRequest: Codable {
-	public let doctype: String
-	public let proofs: [DocIssuanceRequestProof]
+    public let doctype: String
+    public let proofs: [DocIssuanceRequestProof]
 }
 
 public struct DocIssuanceRequestProof: Codable {
-	public let jwt: String
-	public let proofType: String
-	public let format: String
+    public let jwt: String
+    public let proofType: String
+    public let format: String
 }
