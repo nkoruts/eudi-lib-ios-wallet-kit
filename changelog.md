@@ -1,3 +1,56 @@
+## v0.10.9
+- Updated eudi-lib-ios-siop-openid4vp-swift library to (v0.10.1)[https://github.com/eu-digital-identity-wallet/eudi-lib-ios-siop-openid4vp-swift/releases/tag/v0.10.1]
+- Updated eudi-lib-ios-statium-swift library to (v0.2.0)[https://github.com/eu-digital-identity-wallet/eudi-lib-ios-statium-swift/releases/tag/v0.2.0]
+- Add Sendable conformance to TransactionLogData and PresentationLogData structs.
+
+## v0.10.8
+- Modified BLE data transfer initialisation to ensure BLE powered on before advertising UUID service and presenting QR code
+
+## v0.10.7
+### Document Status Checks
+- Integration with `eudi-lib-ios-statium-swift` library for document status checks (Token Status List Specification [draft 10](https://www.ietf.org/archive/id/draft-ietf-oauth-status-list-10.html))
+- Added `public func getDocumentStatus(for statusIdentifier: StatusIdentifier) async throws -> CredentialStatus` method to `EudiWallet` class.
+```swift
+for m in wallet.storage.docModels {
+	guard let st = m.statusIdentifier else { continue }
+	let status = try? await wallet.getDocumentStatus(for: st)
+	// mark document according to its status as active or revoked, etc...
+}
+
+
+## v0.10.6
+### OpenID4VCI - Draft 15
+- Updated OpenID4VCI library to version [0.13.0](https://github.com/eu-digital-identity-wallet/eudi-lib-ios-openid4vci-swift/releases/tag/v0.13.0)
+- Issuing functions updated to work with OpenID4VCI - Draft 15
+
+### Transaction logging
+- To log the transaction data, provide an implementation of the `TransactionLogger` protocol:
+```swift
+public actor DbTransactionLogger: TransactionLogger {
+	public func log(transaction: TransactionLog) async throws {
+		// Implement your logging logic here
+	}
+}
+```
+
+- Set the `transactionLogger` property of the `EudiWallet` instance to a `TransactionLogger` implementation instance:
+```swift
+wallet.transactionLogger = DbTransactionLogger()
+```
+- To display presented documents for a transaction, use the `parseTransactionLog` function of the `EudiWallet` instance:
+```swift
+let presentationData = await wallet.parseTransactionLog(transaction)
+```
+
+## v0.10.5
+- Updated OpenID4VP library to version [v0.9.0](https://github.com/eu-digital-identity-wallet/eudi-lib-ios-siop-openid4vp-swift/releases/tag/v0.9.0)
+- Updated OpenID4VCI library to version [0.12.3](https://github.com/eu-digital-identity-wallet/eudi-lib-ios-openid4vci-swift/releases/tag/v0.12.3)
+
+## v0.10.4
+- Support transaction data for OpenID4VP
+- Fix issue #162 
+- Fix issue #163
+
 ## v0.10.3
 - Removed `vct` from `docClaims` collection. 
 

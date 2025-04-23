@@ -26,6 +26,8 @@ import eudi_lib_sdjwt_swift
 import WalletStorage
 import JSONWebSignature
 import JSONWebAlgorithms
+import SiopOpenID4VP
+import SwiftyJSON
 /**
  *  Utility class to generate the session transcript for the OpenID4VP protocol.
  *
@@ -94,6 +96,7 @@ class Openid4VpUtils {
 	}
 
 	/// Parse mDoc request from presentation definition (Presentation Exchange 2.0.0 protocol)
+	/// dataFormats: map of document-id to data format
 	static func parsePresentationDefinition(_ presentationDefinition: PresentationDefinition, idsToDocTypes: [String: String], dataFormats: [String: DocDataFormat], docDisplayNames: [String: [String: [String: String]]?], logger: Logger? = nil) throws -> (RequestItems?, [String: DocDataFormat], [String: String]) {
 		var inputDescriptorMap = [String: String]()
 		var requestItems = RequestItems()
@@ -121,7 +124,7 @@ class Openid4VpUtils {
 		guard let nsItemPair = regexParts == 2 ? parsePath2(path, pathRx: pathRx) : parsePath1(path, pathRx: pathRx) else { return nil }
 		let elementPath = nsItemPair.1.components(separatedBy: ".")
 		let rootPathComponent = elementPath.first!
-		// displayNames for nested elements are missing now
+		// displayNames for nested elements: todo
 		let rootDisplayName = displayNames??[nsItemPair.0]?[rootPathComponent] ?? rootPathComponent // currently only first level
 		let displayNames = [rootDisplayName] + Array(repeating: nil, count: elementPath.count-1)
 		return (nsItemPair.0, RequestItem(elementPath: elementPath, displayNames: displayNames, intentToRetain: field.intentToRetain ?? false, isOptional: field.optional ?? false))
@@ -150,7 +153,7 @@ class Openid4VpUtils {
 		return (String(path[r1l..<r1r]), String(path[r2l..<r2r]))
 	}
 
-	static func getSdJwtPresentation(_ sdJwt: SignedSDJWT, hashingAlg: HashingAlgorithm, signer: SecureAreaSigner, signAlg: JSONWebAlgorithms.SigningAlgorithm, requestItems: [RequestItem], nonce: String, aud: String) async throws -> SignedSDJWT? {
+	static func getSdJwtPresentation(_ sdJwt: SignedSDJWT, hashingAlg: HashingAlgorithm, signer: SecureAreaSigner, signAlg: JSONWebAlgorithms.SigningAlgorithm, requestItems: [RequestItem], nonce: String, aud: String, transactionData: [TransactionData]?) async throws -> SignedSDJWT? {
 		let allPaths = try sdJwt.disclosedPaths()
 		let requestPaths = requestItems.map(\.elementPath)
 		let query = Set(allPaths.filter { requestPaths.contains($0.tokenArray) })
@@ -159,11 +162,22 @@ class Openid4VpUtils {
 		guard let presentedSdJwt else { return nil }
 		let digestCreator = DigestCreator(hashingAlgorithm: hashingAlg)
 		guard let sdHash = digestCreator.hashAndBase64Encode(input: CompactSerialiser(signedSDJWT: presentedSdJwt).serialised) else { return nil }
-    	let kbJwt: KBJWT = try KBJWT(header: DefaultJWSHeaderImpl(algorithm: signAlg),
-			kbJwtPayload: .init([Keys.nonce.rawValue: nonce, Keys.aud.rawValue: aud, Keys.iat.rawValue: Int(Date().timeIntervalSince1970.rounded()), Keys.sdHash.rawValue: sdHash]))
-		let holderPresentation = try await SDJWTIssuer.presentation(
-          holdersPrivateKey: signer, signedSDJWT: presentedSdJwt, disclosuresToPresent: presentedSdJwt.disclosures, keyBindingJWT: kbJwt)
+    	var payload = [Keys.nonce.rawValue: nonce, Keys.aud.rawValue: aud, Keys.iat.rawValue: Int(Date().timeIntervalSince1970.rounded()), Keys.sdHash.rawValue: sdHash] as [String : Any]
+		  // Process transaction data hashes if available
+		if let transactionData, !transactionData.isEmpty {
+			let transactionDataHashes = transactionData.map { sha256Hash($0.value) }
+			payload["transaction_data_hashes_alg"] = "sha-256"
+			payload["transaction_data_hashes"] = transactionDataHashes
+		}
+		let kbJwt: KBJWT = try KBJWT(header: DefaultJWSHeaderImpl(algorithm: signAlg), kbJwtPayload: JSON(payload))
+		let holderPresentation = try await SDJWTIssuer.presentation(holdersPrivateKey: signer, signedSDJWT: presentedSdJwt, disclosuresToPresent: presentedSdJwt.disclosures, keyBindingJWT: kbJwt)
 		return holderPresentation
+	}
+
+	static func sha256Hash(_ input: String) -> String {
+		let inputData = Array(input.utf8)
+		let digest = SHA256.hash(data: inputData)
+		return Data(digest).base64URLEncodedString()
 	}
 
 	static func filterSignedJwtByDocType(_ sdJwt: SignedSDJWT, docType: String) -> Bool {
