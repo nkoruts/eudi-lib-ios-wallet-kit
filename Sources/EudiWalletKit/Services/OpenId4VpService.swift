@@ -182,7 +182,7 @@ public final class OpenId4VpService: @unchecked Sendable, PresentationService {
 			// support sd-jwt documents
 			for (docId, nsItems) in itemsToSend {
 				guard let docType = idsToDocTypes[docId] else { continue }
-                let inputDescrId = docType
+                let inputDescrId = inputDescriptorMap[docType] ?? docType
 				if dataFormats[docId] == .cbor {
 					if docsCbor == nil { makeCborDocs() }
 					let itemsToSend1 = Dictionary(uniqueKeysWithValues: [(docId, nsItems)])
