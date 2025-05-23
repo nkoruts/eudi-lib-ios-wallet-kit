@@ -181,7 +181,8 @@ public final class OpenId4VpService: @unchecked Sendable, PresentationService {
 			var inputToPresentations = [(String, VpToken.VerifiablePresentation)]()
 			// support sd-jwt documents
 			for (docId, nsItems) in itemsToSend {
-				guard let docType = idsToDocTypes[docId], let inputDescrId = inputDescriptorMap[docType] else { continue }
+				guard let docType = idsToDocTypes[docId] else { continue }
+                let inputDescrId = docType
 				if dataFormats[docId] == .cbor {
 					if docsCbor == nil { makeCborDocs() }
 					let itemsToSend1 = Dictionary(uniqueKeysWithValues: [(docId, nsItems)])
