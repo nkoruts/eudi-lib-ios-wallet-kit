@@ -229,28 +229,16 @@ public final class EudiWallet: ObservableObject, @unchecked Sendable {
         let issuanceResponse = try await issueCredentials(issuanceRequest)
         for (index, response) in issuanceResponse.enumerated() {
             let openId4VCIService = openId4VCIServices[index]
-            let issuanceOutcome = try handleIssuanceResponse(response, configuration: configurations[index], openId4VCIService: openId4VCIService)
+            let issuanceOutcome = try await handleIssuanceResponse(response, configuration: configurations[index], openId4VCIService: openId4VCIService)
             let format = parameters.dataFormats[index].format
             _ = try await finalizeIssuing(issueOutcome: issuanceOutcome, docType: docType, format: format, issueReq: openId4VCIService.issueReq, openId4VCIService: openId4VCIService)
         }
     }
     
-    private func handleIssuanceResponse(_ issuanceResponse: CredentialIssuanceResponse, configuration: CredentialConfiguration, openId4VCIService: OpenId4VCIService) throws -> IssuanceOutcome {
-        guard let result = issuanceResponse.credentialResponses.first else {
-            throw WalletError(description: "No credential response results available")
-        }
-        
-        guard case .issued(_, let credential, _, _) = result else {
-            throw WalletError(description: "Unsupported document status (deferred) ")
-        }
-        
-        if case let .string(strBase64) = credential {
-            return .issued(Data(base64URLEncoded: strBase64), strBase64, configuration)
-        } else if case let .json(json) = credential {
-            return .issued(try JSONEncoder().encode(json), nil, configuration)
-        } else {
-            throw WalletError(description: "Invalid credential")
-        }
+    private func handleIssuanceResponse(_ issuanceResponse: CredentialIssuanceResponse, configuration: CredentialConfiguration, openId4VCIService: OpenId4VCIService) async throws -> IssuanceOutcome {
+        guard let result = issuanceResponse.credentialResponses.first else { throw WalletError(description: "No credential response results available") }
+        guard case .issued(_, let credential, _, _) = result else { throw WalletError(description: "Unsupported document status (deferred) ") }
+        return try await openId4VCIService.handleCredentialResponse(credential: credential, format: nil, configuration: configuration)
     }
 
 	/// Request a deferred issuance based on a stored deferred document. On success, the deferred document is replaced with the issued document.
