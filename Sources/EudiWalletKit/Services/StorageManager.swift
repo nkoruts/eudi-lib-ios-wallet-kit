@@ -269,8 +269,29 @@ public final class StorageManager: ObservableObject, @unchecked Sendable {
 			guard docModels[i].docType == docType else { return nil }
 			return getDocumentModel(index: i)
 		}
-	}
+	}    
+    /// Delete document by docType
 
+    /// Deletes a document with the specified docType.
+    /// - Parameters:
+    ///   - docType: The docType of the document to be deleted.
+    ///
+    /// - Throws: An error if the document could not be deleted.
+    public func deleteDocuments(docType: String) async throws {
+        let documents = docModels.filter({ $0.docType == docType })
+        
+        guard !documents.isEmpty else { throw WalletError(description: "Document not found") }
+        for document in documents {
+            do {
+                try await storageService.deleteDocument(id: document.id, status: .issued) // Check status
+                _ = await MainActor.run { docModels.removeAll(where: { $0.id == document.id }) }
+                await refreshPublishedVars()
+            } catch {
+                await setError(error)
+                throw error
+            }
+        }
+    }
 	/// Delete document by id
 
 	/// Deletes a document with the specified ID and status.

@@ -372,6 +372,17 @@ public final class EudiWallet: ObservableObject, @unchecked Sendable {
 		}
 	}
 
+    /// Delete document by docType
+
+    /// Deletes a document with the specified docType.
+    /// - Parameters:
+    ///   - docType: The docType of the document to be deleted.
+    ///
+    /// - Throws: An error if the document could not be deleted.
+    public func deleteDocument(docType: String) async throws {
+        try await storage.deleteDocuments(docType: docType)
+    }
+
 	/// Delete document by id
 
 	/// Deletes a document with the specified ID and status.
