@@ -18,7 +18,7 @@ extension EudiWallet {
 			let openId4VCIService = try await prepareIssuing(id: UUID().uuidString, docType: docType, displayName: nil, keyOptions: nil, disablePrompt: false, promptMessage: nil)
 			openId4VCIServices.append(openId4VCIService)
 			let configuration = try await openId4VCIService.getCredentialIssuingConfiguration(docType, metadata: metadata, identifier: dataFormat.identifier)
-			guard let proof = try await openId4VCIService.bindingKey?.getProof() else { continue }
+			guard let proof = try await openId4VCIService.bindingKeys.first?.getProof() else { continue }
 			proofs.append(DocIssuanceRequestProof(jwt: proof, proofType: "jwk", format: dataFormat.format.description))
 			configurations.append(configuration)
 		}
@@ -35,6 +35,6 @@ extension EudiWallet {
 	private func handleIssuanceResponse(_ issuanceResponse: CredentialIssuanceResponse, configuration: CredentialConfiguration, openId4VCIService: OpenId4VCIService) async throws -> IssuanceOutcome {
 		guard let result = issuanceResponse.credentialResponses.first else { throw WalletError(description: "No credential response results available") }
 		guard case .issued(_, let credential, _, _) = result else { throw WalletError(description: "Unsupported document status (deferred) ") }
-		return try await openId4VCIService.handleCredentialResponse(credentials: credential, format: nil, configuration: configuration)
+		return try await openId4VCIService.handleCredentialResponse(credentials: [credential], format: nil, configuration: configuration)
 	}
 }
