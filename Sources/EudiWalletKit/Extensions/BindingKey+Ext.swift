@@ -36,7 +36,8 @@ public extension BindingKey {
         ])
         let payloadDictionary: [String: Any] = [
             JWTClaimNames.issuedAt: Int(Date().timeIntervalSince1970.rounded()),
-            JWTClaimNames.audience: "https://issuer.eudiw.dev"
+            JWTClaimNames.audience: "https://issuer.eudiw.dev",
+			JWTClaimNames.nonce: Openid4VpUtils.generateMdocGeneratedNonce()
         ]
         let payload = Payload(try payloadDictionary.toThrowingJSONData())
         
