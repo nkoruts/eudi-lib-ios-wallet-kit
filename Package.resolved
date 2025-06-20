@@ -137,7 +137,7 @@
       }
     },
     {
-      "identity" : "jsonschema.swift",
+      "identity" : "jsonschema",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/kylef/JSONSchema.swift",
       "state" : {
