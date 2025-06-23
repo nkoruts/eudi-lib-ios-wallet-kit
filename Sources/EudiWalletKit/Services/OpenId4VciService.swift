@@ -214,7 +214,6 @@ public final class OpenId4VCIService: NSObject, @unchecked Sendable, ASWebAuthen
 	func getCredentialIssuingConfiguration(_ docType: String?, metadata: CredentialIssuerMetadata, scope: String? = nil, identifier: String? = nil) async throws -> CredentialConfiguration {
 		let credentialIssuerIdentifier = try CredentialIssuerId(credentialIssuerURL)
 		let credentialConfiguration = try getCredentialConfiguration(credentialIssuerIdentifier: credentialIssuerIdentifier.url.absoluteString.replacingOccurrences(of: "https://", with: ""), issuerDisplay: metadata.display, credentialsSupported: metadata.credentialsSupported, identifier: identifier, docType: docType, scope: scope, batchCredentialIssuance: metadata.batchCredentialIssuance)
-		try await initSecurityKeys(algSupported: Set(credentialConfiguration.credentialSigningAlgValuesSupported))
 		return credentialConfiguration
 	}
 

@@ -17,10 +17,11 @@ extension EudiWallet {
 		for dataFormat in parameters.dataFormats {
 			let openId4VCIService = try await prepareIssuing(id: UUID().uuidString, docType: docType, displayName: nil, keyOptions: nil, disablePrompt: false, promptMessage: nil)
 			openId4VCIServices.append(openId4VCIService)
-			let configuration = try await openId4VCIService.getCredentialIssuingConfiguration(docType, metadata: metadata, identifier: dataFormat.identifier)
-			guard let proof = try await openId4VCIService.bindingKeys.first?.getProof() else { continue }
+			let credentialConfiguration = try await openId4VCIService.getCredentialIssuingConfiguration(docType, metadata: metadata, identifier: dataFormat.identifier)
+			let securityKeys = try await openId4VCIService.initSecurityKeys(algSupported: Set(credentialConfiguration.credentialSigningAlgValuesSupported))
+			guard let proof = try await securityKeys.first?.getProof() else { continue }
 			proofs.append(DocIssuanceRequestProof(jwt: proof, proofType: "jwk", format: dataFormat.format.description))
-			configurations.append(configuration)
+			configurations.append(credentialConfiguration)
 		}
 		let issuanceRequest = DocIssuanceRequest(doctype: docType, proofs: proofs)
 		let issuanceResponse = try await issueCredentials(issuanceRequest)
