@@ -36,7 +36,7 @@ public extension BindingKey {
         ])
         let payloadDictionary: [String: Any] = [
             JWTClaimNames.issuedAt: Int(Date().timeIntervalSince1970.rounded()),
-			JWTClaimNames.audience: "https://pid-issuer"
+			JWTClaimNames.audience: "https://localhost:8080/"
         ]
         let payload = Payload(try payloadDictionary.toThrowingJSONData())
         
