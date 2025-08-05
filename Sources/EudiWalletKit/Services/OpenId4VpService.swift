@@ -24,6 +24,7 @@ import MdocDataTransfer18013
 import WalletStorage
 import SiopOpenID4VP
 import struct SiopOpenID4VP.X509CertificateChainVerifier
+import protocol SiopOpenID4VP.Networking
 import eudi_lib_sdjwt_swift
 import JOSESwift
 import Logging
@@ -64,7 +65,6 @@ public final class OpenId4VpService: @unchecked Sendable, PresentationService {
 	var siopOpenId4Vp: SiopOpenID4VP!
 	var openId4VpVerifierApiUri: String?
 	var openId4VpVerifierLegalName: String?
-	var openId4VpVerifierRedirectUri: String?
 	var readerAuthValidated: Bool = false
 	var readerCertificateIssuer: String?
 	var readerCertificateValidationMessage: String?
@@ -74,12 +74,12 @@ public final class OpenId4VpService: @unchecked Sendable, PresentationService {
 	var mdocGeneratedNonce: String!
 	var sessionTranscript: SessionTranscript!
 	var eReaderPub: CoseKey?
-	var urlSession: URLSession
+	var networking: Networking
 	var unlockData: [String: Data]!
 	public var transactionLog: TransactionLog
 	public var flow: FlowType
 
-	public init(parameters: InitializeTransferData, qrCode: Data, openId4VpVerifierApiUri: String?, openId4VpVerifierLegalName: String?, openId4VpVerifierRedirectUri: String?, urlSession: URLSession) throws {
+	public init(parameters: InitializeTransferData, qrCode: Data, openId4VpVerifierApiUri: String?, openId4VpVerifierLegalName: String?, networking: Networking) throws {
 		self.flow = .openid4vp(qrCode: qrCode)
 		let objs = parameters.toInitializeTransferInfo()
 		dataFormats = objs.dataFormats; docs = objs.documentObjects; privateKeyObjects = objs.privateKeyObjects
@@ -94,8 +94,7 @@ public final class OpenId4VpService: @unchecked Sendable, PresentationService {
 		self.openid4VPlink = openid4VPlink
 		self.openId4VpVerifierApiUri = openId4VpVerifierApiUri
 		self.openId4VpVerifierLegalName = openId4VpVerifierLegalName
-		self.openId4VpVerifierRedirectUri = openId4VpVerifierRedirectUri
-		self.urlSession = urlSession
+		self.networking = networking
 		transactionLog = TransactionLogUtils.initializeTransactionLog(type: .presentation, dataFormat: .json)
 	}
 
@@ -118,7 +117,7 @@ public final class OpenId4VpService: @unchecked Sendable, PresentationService {
 		siopOpenId4Vp = SiopOpenID4VP(walletConfiguration: getWalletConf())
 		switch await siopOpenId4Vp.authorize(url: openid4VPURI)  {
 		case .notSecured(data: let rrd):
-			if case let .redirectUri(clientId: uri) = rrd.client, verifierRedirectUrl?.host() == uri.host() { return try handleRequestData(rrd) }
+			if case .redirectUri = rrd.client { return try handleRequestData(rrd) }
 			else { throw PresentationSession.makeError(str: "Not secured request") }
 		case .invalidResolution(error: let error, dispatchDetails: let details):
 			logger.error("Invalid resolution: \(error.localizedDescription)")
@@ -201,7 +200,7 @@ public final class OpenId4VpService: @unchecked Sendable, PresentationService {
 		logger.info("Openid4vp request items: \(itemsToSend.mapValues { $0.mapValues { ar in ar.map(\.elementIdentifier) } })")
 		if unlockData == nil { _ = try await startQrEngagement(secureAreaName: nil, crv: .P256) }
 		if formatsRequested.first(where: { (_, value: DocDataFormat) in value == .cbor }) != nil { makeCborDocs() }
-		if formatsRequested.allSatisfy({ (_, value: DocDataFormat) in value == .cbor }) {
+		if dcql == nil, formatsRequested.allSatisfy({ (_, value: DocDataFormat) in value == .cbor }) {
 			let vpToken = try await generateCborVpToken(itemsToSend: itemsToSend)
 			let inputId = presentationDefinition?.inputDescriptors.first!.id ?? dcql?.credentials.first?.id.value ?? ""
 			try await SendVpTokens([(inputId, nil, vpToken.0)], presentationDefinition, dcql, resolved, onSuccess)
@@ -261,7 +260,7 @@ public final class OpenId4VpService: @unchecked Sendable, PresentationService {
 			.vpToken(vpContent: .dcql(verifiablePresentations: Dictionary(grouping: vpTokens, by: { try! QueryId(value: $0.0) }).mapValues { ts in ts.first!.2 }))
 		} else { .negative(message: "Rejected") }
 		// Generate a direct post authorisation response
-		let response = try AuthorizationResponse(resolvedRequest: resolved, consent: consent, walletOpenId4VPConfig: getWalletConf())
+		let response = try AuthorizationResponse(resolvedRequest: resolved, consent: consent, walletOpenId4VPConfig: getWalletConf(), encryptionParameters: .apu(mdocGeneratedNonce.base64urlEncode))
 		let result: DispatchOutcome = try await siopOpenId4Vp.dispatch(response: response)
 		if case let .accepted(url) = result {
 			logger.info("Dispatch accepted, return url: \(url?.absoluteString ?? "")")
@@ -299,8 +298,6 @@ public final class OpenId4VpService: @unchecked Sendable, PresentationService {
 		self.certificateChain = data
 		return result
 	}
-	
-	var verifierRedirectUrl: URL? { if let openId4VpVerifierRedirectUri, let uri = URL(string: openId4VpVerifierRedirectUri) { uri } else { nil } }
 
 	/// OpenId4VP wallet configuration
 	func getWalletConf() -> SiopOpenId4VPConfiguration? {
@@ -313,8 +310,8 @@ public final class OpenId4VpService: @unchecked Sendable, PresentationService {
 			let verifierMetaData = PreregisteredClient(clientId: "Verifier", legalName: verifierLegalName, jarSigningAlg: JWSAlgorithm(.RS256), jwkSetSource: WebKeySource.fetchByReference(url: URL(string: "\(verifierApiUrl)/wallet/public-keys.json")!))
 			supportedClientIdSchemes += [.preregistered(clients: [verifierMetaData.clientId: verifierMetaData])]
 		}
-		if let verifierRedirectUrl { supportedClientIdSchemes.append(.redirectUri(clientId: verifierRedirectUrl)) }
-		let res = SiopOpenId4VPConfiguration(subjectSyntaxTypesSupported: [.decentralizedIdentifier, .jwkThumbprint], preferredSubjectSyntaxType: .jwkThumbprint, decentralizedIdentifier: try! DecentralizedIdentifier(rawValue: "did:example:123"), signingKey: privateKey, signingKeySet: keySet, supportedClientIdSchemes: supportedClientIdSchemes, vpFormatsSupported: [], session: urlSession)
+		supportedClientIdSchemes.append(.redirectUri) // add redirect uri scheme
+		let res = SiopOpenId4VPConfiguration(subjectSyntaxTypesSupported: [.decentralizedIdentifier, .jwkThumbprint], preferredSubjectSyntaxType: .jwkThumbprint, decentralizedIdentifier: try! DecentralizedIdentifier(rawValue: "did:example:123"), signingKey: privateKey, publicWebKeySet: keySet, supportedClientIdSchemes: supportedClientIdSchemes, vpFormatsSupported: [],  jarConfiguration: .encryptionOption, vpConfiguration: .default(), session: networking, jarmConfiguration: .default())
 		return res
 	}
 
@@ -329,3 +326,18 @@ extension VerifiablePresentation {
 	}
 }
 
+struct OpenID4VPNetworking: Networking {
+	let networking: any NetworkingProtocol
+
+	init(networking: any NetworkingProtocol) {
+		self.networking = networking
+	}
+
+	func data(from url: URL) async throws -> (Data, URLResponse) {
+		try await networking.data(from: url)
+	}
+
+	func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+		try await networking.data(for: request)
+	}
+}

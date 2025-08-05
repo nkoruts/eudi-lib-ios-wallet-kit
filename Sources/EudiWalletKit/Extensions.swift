@@ -107,6 +107,12 @@ extension WalletStorage.Document {
 		}
 		return nil
 	}
+
+	public var docTypeIdentifier: DocTypeIdentifier? {
+		if docDataFormat == .cbor, let docType = docType { return .msoMdoc(docType: docType) }
+		else if docDataFormat == .sdjwt, let vct = docType { return .sdJwt(vct: vct) }
+		return nil
+	}
 }
 
 extension MdocDataModel18013.CoseKeyPrivate {
@@ -185,6 +191,14 @@ extension DocMetadata {
 	func getMetadata(uiCulture: String?) -> (displayName: String?, display: [DisplayMetadata]?, issuerDisplay: [DisplayMetadata]?, credentialIssuerIdentifier: String?, configurationIdentifier: String?, claimMetadata: [DocClaimMetadata]?) {
 		guard let claims else { return (nil, nil, nil, nil, nil, nil) }
 		return (getDisplayName(uiCulture), display, issuerDisplay, credentialIssuerIdentifier: credentialIssuerIdentifier, configurationIdentifier: configurationIdentifier,  claims)
+	}
+}
+
+extension URL {
+	func getBaseUrl() -> String {
+		var urlString = scheme! + "://" + host!
+		if let port = port { urlString += ":\(port)" }
+		return urlString
 	}
 }
 
