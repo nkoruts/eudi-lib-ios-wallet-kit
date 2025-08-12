@@ -230,9 +230,9 @@ public final class OpenId4VCIService: NSObject, @unchecked Sendable, ASWebAuthen
 		throw WalletError(description: "Issuer does not support docType or scope or identifier \(docType ?? vct ?? identifier ?? "")")
 	}
     
-	func getCredentialIssuingConfiguration(_ docType: String?, metadata: CredentialIssuerMetadata, scope: String? = nil, identifier: String? = nil) async throws -> CredentialConfiguration {
+	func getCredentialIssuingConfiguration(docTypeIdentifier: DocTypeIdentifier, metadata: CredentialIssuerMetadata) async throws -> CredentialConfiguration {
 		let credentialIssuerIdentifier = try CredentialIssuerId(credentialIssuerURL)
-		let credentialConfiguration = try getCredentialConfiguration(credentialIssuerIdentifier: credentialIssuerIdentifier.url.absoluteString.replacingOccurrences(of: "https://", with: ""), issuerDisplay: metadata.display, credentialsSupported: metadata.credentialsSupported, identifier: identifier, docType: docType, scope: scope, batchCredentialIssuance: metadata.batchCredentialIssuance)
+		let credentialConfiguration = try getCredentialConfiguration(credentialIssuerIdentifier: credentialIssuerIdentifier.url.absoluteString.replacingOccurrences(of: "https://", with: ""), issuerDisplay: metadata.display, credentialsSupported: metadata.credentialsSupported, identifier: docTypeIdentifier.configurationIdentifier, docType: docTypeIdentifier.docType, vct: docTypeIdentifier.vct, batchCredentialIssuance: metadata.batchCredentialIssuance)
 		return credentialConfiguration
 	}
 

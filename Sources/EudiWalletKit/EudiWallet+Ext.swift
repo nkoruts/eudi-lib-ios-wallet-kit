@@ -15,12 +15,14 @@ extension EudiWallet {
 		var proofs: [DocIssuanceRequestProof] = []
 		var configurations: [CredentialConfiguration] = []
 		for dataFormat in parameters.dataFormats {
-			let openId4VCIService = try await prepareIssuing(id: UUID().uuidString, docType: docType, displayName: nil, keyOptions: nil, disablePrompt: false, promptMessage: nil)
+			let docTypeIdentifier: DocTypeIdentifier = .identifier(dataFormat.identifier)
+			let openId4VCIService = try await prepareIssuing(id: UUID().uuidString, docTypeIdentifier: docTypeIdentifier, displayName: nil, keyOptions: nil, disablePrompt: false, promptMessage: nil)
 			openId4VCIServices.append(openId4VCIService)
-			let credentialConfiguration = try await openId4VCIService.getCredentialIssuingConfiguration(docType, metadata: metadata, identifier: dataFormat.identifier)
+			let credentialConfiguration = try await openId4VCIService.getCredentialIssuingConfiguration(docTypeIdentifier: docTypeIdentifier, metadata: metadata)
 			let securityKeys = try await openId4VCIService.initSecurityKeys(algSupported: Set(credentialConfiguration.credentialSigningAlgValuesSupported))
 			guard let proof = try await securityKeys.first?.getProof() else { continue }
-			proofs.append(DocIssuanceRequestProof(jwt: proof, proofType: "jwk", format: dataFormat.format.description))
+			let requestProof = DocIssuanceRequestProof(jwt: proof, proofType: "jwk", format: dataFormat.format.description)
+			proofs.append(requestProof)
 			configurations.append(credentialConfiguration)
 		}
 		let issuanceRequest = DocIssuanceRequest(doctype: docType, proofs: proofs)
