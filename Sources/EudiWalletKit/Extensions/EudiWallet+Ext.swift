@@ -28,6 +28,7 @@ extension EudiWallet {
 		let issuanceRequest = DocIssuanceRequest(doctype: docType, proofs: proofs)
 		let issuanceResponse = try await issueCredentials(issuanceRequest)
 		for (index, response) in issuanceResponse.enumerated() {
+			guard openId4VCIServices.count > index, configurations.count > index else { return }
 			let openId4VCIService = openId4VCIServices[index]
 			let issuanceOutcome = try await handleIssuanceResponse(response, configuration: configurations[index], openId4VCIService: openId4VCIService)
 			let format = parameters.dataFormats[index].format
