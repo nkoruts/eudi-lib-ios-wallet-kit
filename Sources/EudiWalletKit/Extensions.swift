@@ -22,6 +22,7 @@ import MdocSecurity18013
 import WalletStorage
 import SwiftCBOR
 import SwiftyJSON
+import struct eudi_lib_sdjwt_swift.ClaimPath
 import eudi_lib_sdjwt_swift
 
 extension String {
@@ -118,7 +119,7 @@ extension WalletStorage.Document {
 extension MdocDataModel18013.CoseKeyPrivate {
   // decode private key data cbor string and save private key in key chain
 	public static func from(base64: String) async -> MdocDataModel18013.CoseKeyPrivate? {
-		guard let d = Data(base64Encoded: base64), let obj = try? CBOR.decode([UInt8](d)), let coseKey = CoseKey(cbor: obj), let cd = obj[-4], case let CBOR.byteString(rd) = cd else { return nil }
+		guard let d = Data(base64Encoded: base64), let obj = try? CBOR.decode([UInt8](d)), let coseKey = try? CoseKey(cbor: obj), let cd = obj[-4], case let CBOR.byteString(rd) = cd else { return nil }
 		let storage = await SecureAreaRegistry.shared.defaultSecurityArea!.getStorage()
 		let sampleSA = SampleDataSecureArea.create(storage: storage)
 		let keyData = NSMutableData(bytes: [0x04], length: [0x04].count)
@@ -160,6 +161,15 @@ extension Claim {
 	var metadata: DocClaimMetadata { DocClaimMetadata(display: display?.map(\.displayMetadata), isMandatory: mandatory, claimPath: path.value.map(\.description)) }
 }
 
+extension DocClaim {
+	var claimPath: ClaimPath {
+		ClaimPath(path.map { ClaimPathElement.claim(name: $0) })
+	}
+	var claimPaths: [ClaimPath] {
+		if let children { children.map(\.claimPath) } else { [claimPath] }
+	}
+}
+
 extension Array where Element == DocClaimMetadata {
 	func convertToCborClaimMetadata(_ uiCulture: String?) -> (displayNames: [NameSpace: [String: String]], mandatory: [NameSpace: [String: Bool]]) {
 		guard allSatisfy({ $0.claimPath.count > 1 }) else { return ([:], [:]) } // sanity check
@@ -196,6 +206,10 @@ extension DocMetadata {
 
 extension DocKeyInfo {
 	static var `default`: Self { DocKeyInfo(secureAreaName: SoftwareSecureArea.name, batchSize: 1, credentialPolicy: .rotateUse) }
+}
+
+extension IssueRequest {
+	var dpopKeyId: String { id + "_dpop" }
 }
 
 extension URL {
