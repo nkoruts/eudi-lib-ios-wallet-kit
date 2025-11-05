@@ -438,7 +438,7 @@ public actor OpenId4VCIService {
 		}
 	}
 
-	private func handleCredentialResponse(credentials: [Credential], publicKeys: [Data], format: String?, configuration: CredentialConfiguration) async throws -> IssuanceOutcome {
+	func handleCredentialResponse(credentials: [Credential], publicKeys: [Data], format: String?, configuration: CredentialConfiguration) async throws -> IssuanceOutcome {
 		logger.info("Credential issued with format \(format ?? "unknown")")
 		let toData: (String) -> Data = { str in
 			if configuration.format == .cbor { return Data(base64URLEncoded: str) ?? Data() } else { return str.data(using: .utf8) ?? Data() }
