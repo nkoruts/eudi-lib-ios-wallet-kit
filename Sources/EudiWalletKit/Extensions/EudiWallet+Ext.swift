@@ -26,7 +26,7 @@ extension EudiWallet {
 			let algSupported = Set(credentialConfiguration.credentialSigningAlgValuesSupported)
 			let (bindingKeys, pblcKeys) = try await vciService.initSecurityKeys(algSupported: algSupported)
 			guard let proof = try await bindingKeys.first?.getProof(), let publicKey = pblcKeys.first else { continue }
-			let requestProof = DocIssuanceRequestProof(jwt: proof, proofType: "jwk", format: dataFormat.format.description)
+			let requestProof = DocIssuanceRequestProof(jwt: proof, proofType: "jwk", format: dataFormat.format.rawValue)
 			proofs.append(requestProof)
 			configurations.append(credentialConfiguration)
 			publicKeys.append(publicKey)

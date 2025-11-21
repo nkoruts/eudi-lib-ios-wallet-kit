@@ -19,10 +19,10 @@ public struct DocIssuanceModel {
 }
 
 public struct DocIssuanceDataFormat {
-    public let format: DocDataFormat
+    public let format: EudiDocDataFormat
     public let identifier: String
     
-    public init(format: DocDataFormat, identifier: String) {
+    public init(format: EudiDocDataFormat, identifier: String) {
         self.format = format
         self.identifier = identifier
     }
@@ -37,4 +37,10 @@ public struct DocIssuanceRequestProof: Codable {
     public let jwt: String
     public let proofType: String
     public let format: String
+}
+
+
+public enum EudiDocDataFormat: String, Codable {
+	case cbor = "mso_mdoc"
+	case sdjwt = "dc+sd-jwt"
 }
