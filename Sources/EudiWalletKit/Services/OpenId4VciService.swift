@@ -689,7 +689,8 @@ public actor OpenId4VciService {
 					guard case let .url(url) = event else { continue }
 					if let code = url.getQueryStringParameter("code") {
 						self.logger.info("Authorization code: \(code)")
-						return .code(code)
+						let state = url.getQueryStringParameter("state")
+						return .code(code, state: state)
 					} else if let schemes = Bundle.main.getURLSchemas(), schemes.first(where: { url.absoluteString.hasPrefix($0 + "://") }) != nil {
 						self.logger.info("Dynamic issuance url: \(url)")
 						return .presentation_request(url)
