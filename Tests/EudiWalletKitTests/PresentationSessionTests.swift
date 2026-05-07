@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 European Commission
+ * Copyright (c) 2026 European Commission
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@
 import Testing
 @testable import EudiWalletKit
 import Foundation
+import MdocDataModel18013
 import MdocDataTransfer18013
 
 // TODO: Add tests for PresentationSession:
