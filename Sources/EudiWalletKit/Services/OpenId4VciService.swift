@@ -678,39 +678,50 @@ public actor OpenId4VciService {
 
 	@MainActor
 	private func loginUserAndGetAuthCode(authorizationCodeURL: URL) async throws -> AsWebOutcome {
-		await MainActor.run {
-			UIApplication.shared.open(authorizationCodeURL)
-		}
+		let expectedState = authorizationCodeURL.getQueryStringParameter("state")
+		let logger = self.logger
+
+		let stream = await DeeplinkBus.shared.subscribe()
+
+		await UIApplication.shared.open(authorizationCodeURL)
+
 		let timeoutNs: UInt64 = 120 * 1_000_000_000
-		
+
 		return try await withThrowingTaskGroup(of: AsWebOutcome.self) { group in
 			group.addTask {
-				for await event in await DeeplinkBus.shared.stream {
+				for await event in stream {
 					guard case let .url(url) = event else { continue }
+
+					if let expectedState,
+					   let incomingState = url.getQueryStringParameter("state"),
+					   incomingState != expectedState {
+						logger.info("Ignoring deeplink with mismatched state")
+						continue
+					}
+
 					if let code = url.getQueryStringParameter("code") {
-						self.logger.info("Authorization code: \(code)")
-						let state = url.getQueryStringParameter("state")
-						return .code(code, state: state)
-					} else if let schemes = Bundle.main.getURLSchemas(), schemes.first(where: { url.absoluteString.hasPrefix($0 + "://") }) != nil {
-						self.logger.info("Dynamic issuance url: \(url)")
+						logger.info("Authorization code received")
+						return .code(code, state: url.getQueryStringParameter("state"))
+					} else if let schemes = Bundle.main.getURLSchemas(),
+							  schemes.contains(where: { url.absoluteString.hasPrefix($0 + "://") }) {
+						logger.info("Dynamic issuance url: \(url)")
 						return .presentation_request(url)
 					} else {
 						throw WalletError(description: "Authorization response does not include a code")
 					}
 				}
-				
-				throw WalletError(description: "Authorization response does not include a url")
+				throw CancellationError()
 			}
-			
+
 			group.addTask {
 				try await Task.sleep(nanoseconds: timeoutNs)
-				throw WalletError(description: "Authorization response does not include a url")
+				throw WalletError(description: "Authorization timed out")
 			}
-			
+
+			defer { group.cancelAll() } 
 			guard let result = try await group.next() else {
-				throw WalletError(description: "Authorization response does not include a url")
+				throw WalletError(description: "Authorization produced no result")
 			}
-			group.cancelAll()
 			return result
 		}
 	}

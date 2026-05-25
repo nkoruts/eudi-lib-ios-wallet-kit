@@ -12,15 +12,27 @@ public enum DeeplinkEvent: Sendable {
 public actor DeeplinkBus {
 	public static let shared = DeeplinkBus()
 
-	private var continuation: AsyncStream<DeeplinkEvent>.Continuation?
+	private var subscribers: [UUID: AsyncStream<DeeplinkEvent>.Continuation] = [:]
 
-	public lazy var stream: AsyncStream<DeeplinkEvent> = {
-		AsyncStream { cont in
-			self.continuation = cont
+	private init() {}
+
+	public func subscribe() -> AsyncStream<DeeplinkEvent> {
+		let id = UUID()
+		return AsyncStream(bufferingPolicy: .unbounded) { continuation in
+			subscribers[id] = continuation
+			continuation.onTermination = { [weak self] _ in
+				Task { await self?.removeSubscriber(id) }
+			}
 		}
-	}()
+	}
+
+	private func removeSubscriber(_ id: UUID) {
+		subscribers[id] = nil
+	}
 
 	public func publish(_ url: URL) {
-		continuation?.yield(.url(url))
+		for continuation in subscribers.values {
+			continuation.yield(.url(url))
+		}
 	}
 }
