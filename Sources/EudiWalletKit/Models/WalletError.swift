@@ -39,6 +39,12 @@ public struct WalletError: LocalizedError {
 		case noDocumentsAvailable
 		/// The issuer is not registered
 		case issuerNotRegistered
+		
+		case invalidRequestQuery
+		
+		case invalidUrl
+		
+		case notSecuredRequest
 	}
 
 	public let description: String

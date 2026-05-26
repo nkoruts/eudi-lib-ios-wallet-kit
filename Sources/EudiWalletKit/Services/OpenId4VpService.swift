@@ -75,7 +75,7 @@ public final class OpenId4VpService: @unchecked Sendable, PresentationService {
 		let objs = try await parameters.toInitializeTransferInfo()
 		self.transferInfo = objs
 		guard let openid4VPlink = String(data: qrCode, encoding: .utf8) else {
-			throw PresentationSession.makeError(str: "QR_DATA_MALFORMED")
+			throw PresentationSession.makeError(str: "QR_DATA_MALFORMED", code: .invalidUrl)
 		}
 		self.openid4VPlink = openid4VPlink
 		self.openID4VpConfig = openID4VpConfig
@@ -98,16 +98,16 @@ public final class OpenId4VpService: @unchecked Sendable, PresentationService {
 	///
 	/// - Returns: The requested items.
 	public func receiveRequest() async throws -> UserRequestInfo {
-		guard status != .error, let openid4VPURI = URL(string: openid4VPlink) else { throw PresentationSession.makeError(str: "Invalid link \(openid4VPlink)") }
+		guard status != .error, let openid4VPURI = URL(string: openid4VPlink) else { throw PresentationSession.makeError(str: "Invalid link \(openid4VPlink)", code: .invalidUrl) }
 		openId4Vp = OpenID4VP(walletConfiguration: getWalletConf())
 		switch await openId4Vp.authorize(fetcher: Fetcher<String>(), poster: Poster(session: networking), url: openid4VPURI)  {
 		case .notSecured(data: let rrd):
 			if case .redirectUri = rrd.client { return try handleRequestData(rrd) }
-			else { throw PresentationSession.makeError(str: "Not secured request") }
+			else { throw PresentationSession.makeError(str: "Not secured request", code: .notSecuredRequest) }
 		case .invalidResolution(error: let error, dispatchDetails: let details):
 			logger.error("Invalid resolution: \(error.errorDescription ?? error.localizedDescription)")
 			if let details { logger.error("Details: \(details)") }
-			throw PresentationSession.makeError(str: "Invalid DCQL query: \(error.errorDescription ?? error.localizedDescription)")
+			throw PresentationSession.makeError(str: "Invalid DCQL query: \(error.errorDescription ?? error.localizedDescription)", code: .invalidRequestQuery)
 		case let .jwt(request: rrd):
 			return try handleRequestData(rrd)
 		}
@@ -153,7 +153,7 @@ public final class OpenId4VpService: @unchecked Sendable, PresentationService {
 			requestItems = OpenId4VpUtils.getRequestItems(claimMapPath, idsToDocTypes: transferInfo.idsToDocTypes, formatsRequested: formatsRequested)
 		}
 		self.transactionData = vp.transactionData
-		guard let requestItems, let formatsRequested else { throw PresentationSession.makeError(str: "Invalid request query") }
+		guard let requestItems, let formatsRequested else { throw PresentationSession.makeError(str: "Invalid request query", code: .invalidRequestQuery) }
 		var result = UserRequestInfo(docDataFormats: formatsRequested, itemsRequested: requestItems, deviceRequestBytes: deviceRequestBytes)
 		logger.info("Verifier requested items: \(requestItems.mapValues { $0.mapValues { ar in ar.map(\.elementIdentifier) } })")
 		let certificateIssuerName = readerCertificateIssuer.map(MdocHelpers.getCN(from:))
@@ -233,7 +233,7 @@ public final class OpenId4VpService: @unchecked Sendable, PresentationService {
 	///   - itemsToSend: The selected items to send organized in document types and namespaces
 	public func sendResponse(userAccepted: Bool, itemsToSend: RequestItems, onSuccess: ((URL?) -> Void)?) async throws {
 		guard dcql != nil, let resolved = resolvedRequestData else {
-			throw PresentationSession.makeError(str: "Unexpected error")
+			throw PresentationSession.makeError(str: "Unexpected error", code: .invalidRequestQuery)
 		}
 		guard userAccepted, itemsToSend.count > 0 else {
 			try await SendVpTokens(nil, dcql, resolved, onSuccess)
