@@ -40,37 +40,10 @@ func secCall<Result>(_ body: (_ resultPtr: UnsafeMutablePointer<Unmanaged<CFErro
     return result
 }
 
-func resolveProofTypeAttestationSupport(proofTypesSupported: [String: ProofTypeSupportedMeta]) -> (
-	jwtProofType: ProofTypeSupportedMeta?,
-	jwtProofTypeKeyAttestationRequirement: KeyAttestationRequirement?,
-	attestProofTypeKeyAttestationRequirement: KeyAttestationRequirement?,
-	supportsAttestationProofType: Bool,
-	supportsJwtProofTypeWithoutAttestation: Bool,
-	supportsJwtProofTypeWithAttestation: Bool
-) {
-	let jwtProofType = proofTypesSupported["jwt"]
-	let attestProofType = proofTypesSupported["attestation"]
-	let jwtProofTypeKeyAttestationRequirement = jwtProofType?.keyAttestationRequirement
-	let attestProofTypeKeyAttestationRequirement = attestProofType?.keyAttestationRequirement
-	let supportsAttestationProofType = attestProofType != nil && attestProofTypeKeyAttestationRequirement != .notRequired
-	let supportsJwtProofTypeWithoutAttestation = jwtProofType != nil && (jwtProofTypeKeyAttestationRequirement == nil || jwtProofTypeKeyAttestationRequirement == .notRequired)
-	let supportsJwtProofTypeWithAttestation = jwtProofType != nil && !supportsJwtProofTypeWithoutAttestation
-	return (
-		jwtProofType,
-		jwtProofTypeKeyAttestationRequirement,
-		attestProofTypeKeyAttestationRequirement,
-		supportsAttestationProofType,
-		supportsJwtProofTypeWithoutAttestation,
-		supportsJwtProofTypeWithAttestation
-	)
-}
-
 extension Display {
 	public var displayMetadata: MdocDataModel18013.DisplayMetadata {
 		let logoMetadata = LogoMetadata(urlString: logo?.uri?.absoluteString, alternativeText: logo?.alternativeText)
-		let localeIdentifier = locale?.identifier
-		let backgroundImageURL = backgroundImage?.url.absoluteString
-		return MdocDataModel18013.DisplayMetadata(name: name, localeIdentifier: localeIdentifier, logo: logoMetadata, description: description, backgroundColor: backgroundColor, textColor: textColor, backgroundImageURL: backgroundImageURL)
+		return MdocDataModel18013.DisplayMetadata(name: name, localeIdentifier: locale?.identifier, logo: logoMetadata, description: description, backgroundColor: backgroundColor, textColor: textColor, backgroundImageURL: backgroundImage?.url.absoluteString)
 	}
 }
 
@@ -144,14 +117,20 @@ extension WalletStorage.Document {
 	}
 }
 
-extension MdocDataModel18013.CoseKey {
- 	static func x963Representation(x: Data, y: Data) -> Data {
-		var data = Data([0x04])
-		data.append(x)
-		data.append(y)
-		return data
+/*
+extension MdocDataModel18013.CoseKeyPrivate {
+  // decode private key data cbor string and save private key in key chain
+	public static func from(base64: String) async -> MdocDataModel18013.CoseKeyPrivate? {
+		guard let d = Data(base64Encoded: base64), let obj = try? CBOR.decode([UInt8](d)), let coseKey = try? CoseKey(cbor: obj), let cd = obj[-4], case let CBOR.byteString(rd) = cd else { return nil }
+		let storage = await SecureAreaRegistry.shared.defaultSecurityArea!.getStorage()
+		let keyData = NSMutableData(bytes: [0x04], length: [0x04].count)
+		keyData.append(Data(coseKey.x)); keyData.append(Data(coseKey.y));	keyData.append(Data(rd))
+		let sampleSA = SampleDataSecureArea(storage: storage, x963Key: keyData as Data)
+		let res = MdocDataModel18013.CoseKeyPrivate(secureArea: sampleSA)
+		return res
 	}
 }
+ */
 
 extension MdocDataModel18013.SignUpResponse {
 	/// Decompose CBOR signup responses from data
@@ -230,8 +209,7 @@ extension CredentialConfiguration {
 	func convertToDocMetadata(authorized: AuthorizedRequest? = nil, keyOptions: KeyOptions? = nil, credentialOptions: CredentialOptions? = nil, dpopKeyId: String? = nil) -> DocMetadata {
 		let claimMetadata = claims.map(\.metadata)
 		let authorizedRequestData: Data? = if let authorized { try? JSONEncoder().encode(AuthorizedRequestData(from: authorized)) } else { nil }
-		let resolvedDocType = docType ?? vct ?? ""
-		return DocMetadata(credentialIssuerIdentifier: credentialIssuerIdentifier, configurationIdentifier: configurationIdentifier.value, docType: resolvedDocType, display: display, issuerDisplay: issuerDisplay, claims: claimMetadata, authorizedRequestData: authorizedRequestData, keyOptions: keyOptions, credentialOptions: credentialOptions, dpopKeyId: dpopKeyId)
+		return DocMetadata(credentialIssuerIdentifier: credentialIssuerIdentifier, configurationIdentifier: configurationIdentifier.value, docType: docType ?? vct ?? "", display: display, issuerDisplay: issuerDisplay, claims: claimMetadata, authorizedRequestData: authorizedRequestData, keyOptions: keyOptions, credentialOptions: credentialOptions, dpopKeyId: dpopKeyId)
 	}
 }
 
@@ -239,49 +217,6 @@ extension DocMetadata {
 	func getMetadata(uiCulture: String?) -> (displayName: String?, display: [DisplayMetadata]?, issuerDisplay: [DisplayMetadata]?, credentialIssuerIdentifier: String?, configurationIdentifier: String?, claimMetadata: [DocClaimMetadata]?) {
 		guard let claims else { return (nil, nil, nil, nil, nil, nil) }
 		return (getDisplayName(uiCulture), display, issuerDisplay, credentialIssuerIdentifier: credentialIssuerIdentifier, configurationIdentifier: configurationIdentifier,  claims)
-	}
-
-	/// Downloads all remote images referenced in the credential `display` metadata and replaces their
-	/// URLs with inline `data:` URIs. This prevents issuers from learning when a user views a credential
-	/// (privacy) and eliminates network latency at display time. URLs that cannot be fetched are left unchanged.
-	func downloadingDisplayImages() async -> DocMetadata {
-		guard let display, display.contains(where: { $0.backgroundImageURL != nil || $0.logo?.urlString != nil }) else { return self }
-		let downloadedDisplay = await withTaskGroup(of: DisplayMetadata.self) { group in
-			for dm in display { group.addTask { await dm.downloadingImages() } }
-			var result: [DisplayMetadata] = []
-			for await dm in group { result.append(dm) }
-			return result
-		}
-		return DocMetadata(credentialIssuerIdentifier: credentialIssuerIdentifier, configurationIdentifier: configurationIdentifier, docType: docType, display: downloadedDisplay, issuerDisplay: issuerDisplay, claims: claims, authorizedRequestData: authorizedRequestData, keyOptions: keyOptions, credentialOptions: credentialOptions, dpopKeyId: dpopKeyId)
-	}
-}
-
-extension DisplayMetadata {
-	/// Returns a copy of this `DisplayMetadata` with any http(s) image URLs replaced by inline `data:` URIs.
-	func downloadingImages() async -> DisplayMetadata {
-		async let newBgURL = Self.fetchAsDataURI(urlString: backgroundImageURL)
-		async let newLogoURL = Self.fetchAsDataURI(urlString: logo?.urlString)
-		let (fetchedBg, fetchedLogo) = await (newBgURL, newLogoURL)
-		let newLogo = logo.map { LogoMetadata(urlString: fetchedLogo ?? $0.urlString, alternativeText: $0.alternativeText) }
-		let resolvedBackgroundImageURL = fetchedBg ?? backgroundImageURL
-		return DisplayMetadata(name: name, localeIdentifier: localeIdentifier, logo: newLogo, description: description, backgroundColor: backgroundColor, textColor: textColor, backgroundImageURL: resolvedBackgroundImageURL)
-	}
-
-	/// Downloads data from `urlString` (http/https only) and encodes it as a `data:` URI.
-	/// Returns `nil` if the URL is already a data URI, is `nil`, is non-http, or the download fails.
-	private static func fetchAsDataURI(urlString: String?) async -> String? {
-		guard let urlString else { return nil }
-		// Already a data URI – nothing to do
-		if urlString.lowercased().hasPrefix("data:") { return nil }
-		guard let url = URL(string: urlString), url.scheme == "https" || url.scheme == "http" else { return nil }
-		do {
-			let (data, response) = try await URLSession.shared.data(from: url)
-			let mimeType = (response as? HTTPURLResponse)?.mimeType ?? "application/octet-stream"
-			return "data:\(mimeType);base64,\(data.base64EncodedString())"
-		} catch {
-			logger.warning("Failed to download display image from \(urlString): \(error.localizedDescription)")
-			return nil
-		}
 	}
 }
 
@@ -316,7 +251,7 @@ extension JSON {
 			}
 			return (.integer(UInt64(intValue)), stringValue)
 		case .string:
-			if isBase64ByteClaim(name: name, value: stringValue, valueType: valueType), let d = decodeBase64ByteClaim(stringValue) {
+			if isBase64ByteClaim(name: name, valueType: valueType), let d = decodeBase64ByteClaim(stringValue) {
 				return (.bytes(d.bytes), "\(d.count) bytes")
 			}
 			if name == "sex", let isex = Int(stringValue), isex >= 0, isex <= 2 {
@@ -332,15 +267,14 @@ extension JSON {
 		}
 	}
 
-	private func isBase64ByteClaim(name: String, value: String, valueType: String?) -> Bool {
+	private func isBase64ByteClaim(name: String, valueType: String?) -> Bool {
 		if let valueType {
 			let normalized = valueType.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
 			if ["jpeg", "jpg", "image/jpeg", "png", "image/png"].contains(normalized) {
 				return true
 			}
 		}
-		let (isValid, _) = isValidDataUrlAndGetCommaIndex(from: value)
-		return isValid || name == "portrait" || name == "signature_usual_mark"
+		return name == "portrait" || name == "signature_usual_mark"
 	}
 
 	private func decodeBase64ByteClaim(_ value: String) -> Data? {
@@ -350,19 +284,12 @@ extension JSON {
 		return Data(base64urlEncoded: value) ?? Data(base64Encoded: value)
 	}
 
-	private func isValidDataUrlAndGetCommaIndex(from value: String) -> (isValid: Bool, commaIndex: String.Index?) {
+	private func dataUrlBase64Payload(from value: String) -> String? {
 		let prefix = String(value.prefix(5))
-		guard prefix.caseInsensitiveCompare("data:") == .orderedSame else { return (false, nil) }
-		guard let commaIndex = value.firstIndex(of: ",") else { return (false, nil) }
+		guard prefix.caseInsensitiveCompare("data:") == .orderedSame, let commaIndex = value.firstIndex(of: ",") else { return nil }
 		let metadataStartIndex = value.index(value.startIndex, offsetBy: 5)
 		let metadata = value[metadataStartIndex..<commaIndex].lowercased()
-		guard metadata.split(separator: ";").contains("base64") else { return (false, nil) }
-		return (true, commaIndex)
-	}
-
-	private func dataUrlBase64Payload(from value: String) -> String? {
-		let (isValid, commaIndex) = isValidDataUrlAndGetCommaIndex(from: value)
-		guard isValid, let commaIndex = commaIndex else { return nil }
+		guard metadata.split(separator: ";").contains("base64") else { return nil }
 		return String(value[value.index(after: commaIndex)...])
 	}
 
@@ -387,11 +314,7 @@ extension JSON {
 				let isArray = type == .array
 				let n2 = if isArray { String(n) } else { key }
 				let cmd = claimMetadata?.convertToJsonClaimMetadata(uiCulture, keyPrefix: pathPrefix)
-				let metadataLookupKey = isArray ? (pathPrefix.last ?? key) : key
-				let displayNameForKey = cmd?.displayNames[metadataLookupKey] ?? (isArray ? pathPrefix.last : nil)
-				let isMandatoryForKey = cmd?.mandatory[metadataLookupKey]
-				let valueTypeForKey = cmd?.valueTypes[metadataLookupKey]
-				if let di = subJson.toDocClaim(key: n2, order: n, pathPrefix: pathPrefix, claimMetadata: claimMetadata, uiCulture: uiCulture, displayName: displayNameForKey, mandatory: isMandatoryForKey, valueType: valueTypeForKey) {
+				if let di = subJson.toDocClaim(key: n2, order: n, pathPrefix: pathPrefix, claimMetadata: claimMetadata, uiCulture: uiCulture, displayName: cmd?.displayNames[key], mandatory: cmd?.mandatory[key], valueType: cmd?.valueTypes[key]) {
 					a.append(di)
 				}
 			}
