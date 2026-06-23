@@ -79,7 +79,7 @@ public struct OfferedDocModel: Sendable {
 	// claims supported for the document
 	public let claims: [Claim]
 	// options for the credential
-	public let credentialOptions: CredentialOptions
+	public var credentialOptions: CredentialOptions
 	// key options
 	public let keyOptions: KeyOptions?
 
