@@ -19,9 +19,7 @@ import SwiftCBOR
 import MdocDataModel18013
 import WalletStorage
 import Logging
-import CryptoKit
 import eudi_lib_sdjwt_swift
-import SwiftyJSON
 import OpenID4VCI
 
 /// Storage manager. Provides services and view models
@@ -121,7 +119,21 @@ public final class StorageManager: ObservableObject, @unchecked Sendable {
 	@MainActor
 	public func setUsageCount(_ usageCount: CredentialsUsageCounts?, id: String) {
 		let docModel = docModels.first(where: { $0.id == id })
+		guard docModel?.credentialsUsageCounts != usageCount else { return }
 		docModel?.credentialsUsageCounts = usageCount
+	}
+
+	/// Refresh usage counters for currently loaded issued document models.
+	///
+	/// This updates each model's `credentialsUsageCounts` from secure area key batch info.
+	/// When a value changes, assigning through `setUsageCount` updates the model's
+	/// published property so observers of the `DocClaimsModel` are notified.
+	public func refreshUsageCounters() async throws {
+		let modelInfos = await MainActor.run { docModels.map { ($0.id, $0.secureAreaName) } }
+		for (id, secureAreaName) in modelInfos {
+			let usageCount = try await Self.getCredentialsUsageCount(id: id, secureAreaName: secureAreaName)
+			await setUsageCount(usageCount, id: id)
+		}
 	}
 
 	/// Converts a `WalletStorage.Document` to an `DocClaimsModel` model using an optional `MdocModelFactory`.
@@ -134,7 +146,7 @@ public final class StorageManager: ObservableObject, @unchecked Sendable {
 	public static func toClaimsModel(doc: WalletStorage.Document, uiCulture: String?, modelFactory: (any DocClaimsDecodableFactory)? = nil) -> DocClaimsModel? {
 		let model: DocClaimsModel? = switch doc.docDataFormat {
 		case .cbor: toCborMdocModel(doc: doc, uiCulture: uiCulture, modelFactory: modelFactory)
-		case .sdjwt: toSdJwtDocModel(doc: doc, uiCulture: uiCulture, modelFactory: modelFactory)
+		case .sdjwt: SdJwtUtils.toSdJwtDocModel(doc: doc, uiCulture: uiCulture, modelFactory: modelFactory)
 		}
 		guard let model else { return nil }
 		return reorderDocClaimsByMetadata(model, doc: doc, uiCulture: uiCulture)
@@ -147,7 +159,10 @@ public final class StorageManager: ObservableObject, @unchecked Sendable {
 		let docKeyInfo = DocKeyInfo(from: doc.docKeyInfo) ?? .default
 		let md = docMetadata?.getMetadata(uiCulture: uiCulture)
 		let cmd = md?.claimMetadata?.convertToCborClaimMetadata(uiCulture)
-		let configuration = DocClaimsModelConfiguration(id: d.0, createdAt: doc.createdAt, docType: doc.docType, displayName: md?.displayName, display: md?.display, issuerDisplay: md?.issuerDisplay, credentialIssuerIdentifier: md?.credentialIssuerIdentifier, configurationIdentifier: md?.configurationIdentifier, validFrom: iss.validFrom, validUntil: iss.validUntil, statusIdentifier: iss.issuerAuth.statusIdentifier, credentialsUsageCounts: nil, credentialPolicy: docKeyInfo.credentialPolicy, secureAreaName: docKeyInfo.secureAreaName, modifiedAt: doc.modifiedAt, docClaims: [], docDataFormat: .cbor, hashingAlg: nil)
+		let credentialIssuerIdentifier = md?.credentialIssuerIdentifier
+		let configurationIdentifier = md?.configurationIdentifier
+		let statusIdentifier = iss.issuerAuth.statusIdentifier
+		let configuration = DocClaimsModelConfiguration(id: d.0, createdAt: doc.createdAt, docType: doc.docType, displayName: md?.displayName, display: md?.display, issuerDisplay: md?.issuerDisplay, credentialIssuerIdentifier: credentialIssuerIdentifier, configurationIdentifier: configurationIdentifier, validFrom: iss.validFrom, validUntil: iss.validUntil, statusIdentifier: statusIdentifier, credentialsUsageCounts: nil, credentialPolicy: docKeyInfo.credentialPolicy, secureAreaName: docKeyInfo.secureAreaName, modifiedAt: doc.modifiedAt, docClaims: [], docDataFormat: .cbor, hashingAlg: nil)
 		var retModel: DocClaimsModel? = modelFactory?.makeClaimsDecodableFromCbor(configuration: configuration, issuerSigned: iss, displayNames: cmd?.displayNames, mandatory: cmd?.mandatory)
 		if retModel == nil {
 			let defModel: DocClaimsModel? = switch doc.docType {
@@ -187,117 +202,6 @@ public final class StorageManager: ObservableObject, @unchecked Sendable {
 		}.sorted(using: KeyPathComparator(\.order))
 		let configuration = DocClaimsModelConfiguration(from: model).withDocClaims(reorderedClaims)
 		return DocClaimsModel(configuration: configuration)
-	}
-
-	public static func toSdJwtDocModel(doc: WalletStorage.Document, uiCulture: String?, modelFactory: (any DocClaimsDecodableFactory)? = nil) -> DocClaimsModel? {
-		var docClaims = [DocClaim]()
-		let docMetadata: DocMetadata? = DocMetadata(from: doc.metadata)
-		let docKeyInfo = DocKeyInfo(from: doc.docKeyInfo) ?? .default
-		let md = docMetadata?.getMetadata(uiCulture: uiCulture)
-		guard let recreatedClaims = recreateSdJwtClaims(docData: doc.data) else { return nil }
-		if let cs = recreatedClaims.json.toClaimsArray(pathPrefix: [], md?.claimMetadata, uiCulture)?.0 { docClaims.append(contentsOf: cs) }
-		var type = docClaims.first(where: { $0.name == "vct"})?.stringValue
-		if type == nil || type!.isEmpty { type = docClaims.first(where: { $0.name == "evidence"})?.children?.first(where: { $0.name == "type"})?.stringValue }
-		let validFrom: Date? = if case let .date(s) = docClaims.first(where: { $0.name == JWTClaimNames.issuedAt})?.dataValue { ISO8601DateFormatter().date(from: s) } else { nil }
-		let validUntil: Date? = if case let .date(s) = docClaims.first(where: { $0.name == JWTClaimNames.expirationTime})?.dataValue { ISO8601DateFormatter().date(from: s) } else { nil }
-		let statusIdentifier: StatusIdentifier? = if let sd = recreatedClaims.json["status"].dictionary, let sld = sd["status_list"]?.dictionary, let uri = sld["uri"]?.string, let idx = sld["idx"]?.int32 { StatusIdentifier(idx: Int(idx), uriString: uri) } else { nil }
-		let configuration = DocClaimsModelConfiguration(id: doc.id, createdAt: doc.createdAt, docType: doc.docType, displayName: docMetadata?.getDisplayName(uiCulture), display: docMetadata?.display, issuerDisplay: docMetadata?.issuerDisplay, credentialIssuerIdentifier: md?.credentialIssuerIdentifier, configurationIdentifier: md?.configurationIdentifier, validFrom: validFrom, validUntil: validUntil, statusIdentifier: statusIdentifier, credentialsUsageCounts: nil, credentialPolicy: docKeyInfo.credentialPolicy, secureAreaName: docKeyInfo.secureAreaName, modifiedAt: doc.modifiedAt, docClaims: docClaims, docDataFormat: .sdjwt, hashingAlg: recreatedClaims.hashingAlg)
-		return DocClaimsModel(configuration: configuration)
-	}
-
-	public static func getHashingAlgorithm(doc: WalletStorage.Document) -> String? {
-		guard doc.docDataFormat == .sdjwt else { return nil }
-		guard let recreatedClaims = recreateSdJwtClaims(docData: doc.data) else { return nil }
-		return recreatedClaims.hashingAlg
-	}
-
-	public static func getVctFromSdJwt(docData: Data) -> String? {
-		guard let recreatedClaims = recreateSdJwtClaims(docData: docData) else { return nil }
-		return recreatedClaims.json["vct"].stringValue
-	}
-
-	static func recreateSdJwtClaims(docData: Data) -> (json: JSON, hashingAlg: String)? {
-		let parser = CompactParser()
-		guard let serString = String(data: docData, encoding: .utf8) else { logger.error("Failed to convert document data to UTF8 string"); return nil}
-		guard let sdJwt = try? parser.getSignedSdJwt(serialisedString: serString) else { logger.error("Failed to parse serialized SDJWT"); return nil }
-		var recreatedClaims: JSON?; var hashingAlg: String?
-		do {
-			let result = try sdJwt.recreateClaims()
-			let (_, payload, _) = extractJWTParts(sdJwt.jwt.compactSerialization)
-			guard let paylodData = Data(base64URLEncoded: payload), let payload = try? JSON(data: paylodData) else { logger.error("Failed to base64url decode payload"); return nil }
-			hashingAlg = try payload.extractDigestAlgorithm()
-			recreatedClaims = resolveNestedSdClaims(result.recreatedClaims, disclosures: sdJwt.disclosures, hashingAlg: hashingAlg ?? "sha-256")
-		} catch { logger.error("Failed to recreate claims from SDJWT: \(error)") }
-		guard let recreatedClaims, let hashingAlg else { return nil }
-		return (recreatedClaims, hashingAlg)
-	}
-
-	/// Recursively resolve any remaining `_sd` digest arrays in the JSON tree using the raw disclosures.
-	static func resolveNestedSdClaims(_ json: JSON, disclosures: [String], hashingAlg: String) -> JSON {
-		// Build a map from base64url-encoded hash → decoded disclosure JSON
-		var hashToDisclosure: [String: JSON] = [:]
-		for disclosure in disclosures {
-			guard let hash = computeDisclosureHash(disclosure, alg: hashingAlg) else { continue }
-			guard let decoded = Data(base64URLEncoded: disclosure), let dJson = try? JSON(data: decoded) else { continue }
-			hashToDisclosure[hash] = dJson
-		}
-		return resolveNode(json, hashToDisclosure: hashToDisclosure, hashingAlg: hashingAlg)
-	}
-
-	private static func resolveNode(_ json: JSON, hashToDisclosure: [String: JSON], hashingAlg: String) -> JSON {
-		switch json.type {
-		case .dictionary:
-			var dict = json.dictionaryValue
-			// If this object has an _sd array, resolve the hashes into actual claims
-			if let sdArray = dict["_sd"]?.array {
-				for hashJson in sdArray {
-					let hashStr = hashJson.stringValue
-					if let disclosure = hashToDisclosure[hashStr], disclosure.arrayValue.count >= 3 {
-						let claimName = disclosure[1].stringValue
-						let claimValue = disclosure[2]
-						dict[claimName] = claimValue
-					}
-				}
-				dict.removeValue(forKey: "_sd")
-			}
-			dict.removeValue(forKey: "_sd_alg")
-			// Recursively resolve children
-			var result = JSON([:])
-			for (key, value) in dict {
-				result[key] = resolveNode(value, hashToDisclosure: hashToDisclosure, hashingAlg: hashingAlg)
-			}
-			return result
-		case .array:
-			let resolved = json.arrayValue.map { element -> JSON in
-				// Handle array elements with "..." (decoy digests)
-				if element.type == .dictionary, let dots = element["..."].string {
-					if let disclosure = hashToDisclosure[dots], disclosure.arrayValue.count >= 2 {
-						return resolveNode(disclosure[1], hashToDisclosure: hashToDisclosure, hashingAlg: hashingAlg)
-					}
-				}
-				return resolveNode(element, hashToDisclosure: hashToDisclosure, hashingAlg: hashingAlg)
-			}
-			return JSON(resolved)
-		default:
-			return json
-		}
-	}
-
-	private static func computeDisclosureHash(_ disclosure: String, alg: String) -> String? {
-		guard let data = disclosure.data(using: .ascii) else { return nil }
-		let digest: Data
-		switch alg {
-		case "sha-256": digest = Data(SHA256.hash(data: data))
-		case "sha-384": digest = Data(SHA384.hash(data: data))
-		case "sha-512": digest = Data(SHA512.hash(data: data))
-		default: digest = Data(SHA256.hash(data: data))
-		}
-		return digest.base64URLEncodedString()
-	}
-
-	static func extractJWTParts(_ jwt: String) -> (String, String, String) {
-		let parts = jwt.components(separatedBy: ".")
-		return (parts.count > 0 ? parts[0] : "", parts.count > 1 ? parts[1] : "" , parts.count > 2 ? parts[2] : "")
 	}
 
 	public func getDocIdsToPresentInfo(documents: [WalletStorage.Document]? = nil) async throws -> [String: DocPresentInfo] {
@@ -340,7 +244,10 @@ public final class StorageManager: ObservableObject, @unchecked Sendable {
 	@discardableResult public func loadDocuments(status: WalletStorage.DocumentStatus, uiCulture: String?) async throws -> [WalletStorage.Document]?  {
 		do {
 			guard let docs = try await storageService.loadDocuments(status: status) else { return nil }
-			let docs2 = docs.map { d in WalletStorage.Document(id: d.id, docType: d.docType, docDataFormat: d.docDataFormat, data: d.data, docKeyInfo: d.docKeyInfo, createdAt: d.createdAt, modifiedAt: d.modifiedAt, metadata: d.metadata, displayName: d.getDisplayName(uiCulture), status: d.status) }
+			let docs2 = docs.map { document in
+				let displayName = document.getDisplayName(uiCulture)
+				return WalletStorage.Document(id: document.id, docType: document.docType, docDataFormat: document.docDataFormat, data: document.data, docKeyInfo: document.docKeyInfo, createdAt: document.createdAt, modifiedAt: document.modifiedAt, metadata: document.metadata, displayName: displayName, status: document.status)
+			}
 			await refreshDocModels(docs2, uiCulture: uiCulture, docStatus: status)
 			await refreshPublishedVars()
 			return docs
@@ -400,29 +307,8 @@ public final class StorageManager: ObservableObject, @unchecked Sendable {
 			guard docModels[i].docType == docType else { return nil }
 			return getDocumentModel(index: i)
 		}
-	}    
-    /// Delete document by docType
+	}
 
-    /// Deletes a document with the specified docType.
-    /// - Parameters:
-    ///   - docType: The docType of the document to be deleted.
-    ///
-    /// - Throws: An error if the document could not be deleted.
-    public func deleteDocuments(docType: String) async throws {
-        let documents = docModels.filter({ $0.docType == docType })
-        
-        guard !documents.isEmpty else { throw WalletError(description: "Document not found") }
-        for document in documents {
-            do {
-                try await storageService.deleteDocument(id: document.id, status: .issued) // Check status
-                _ = await MainActor.run { docModels.removeAll(where: { $0.id == document.id }) }
-                await refreshPublishedVars()
-            } catch {
-                await setError(error)
-                throw error
-            }
-        }
-    }
 	/// Delete document by id
 
 	/// Deletes a document with the specified ID and status.

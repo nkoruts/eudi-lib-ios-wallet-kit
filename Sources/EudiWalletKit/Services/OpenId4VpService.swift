@@ -75,7 +75,7 @@ public final class OpenId4VpService: @unchecked Sendable, PresentationService {
 		let objs = try await parameters.toInitializeTransferInfo()
 		self.transferInfo = objs
 		guard let openid4VPlink = String(data: qrCode, encoding: .utf8) else {
-			throw PresentationSession.makeError(str: "QR_DATA_MALFORMED", code: .invalidUrl)
+			throw PresentationSession.makeError(str: "QR_DATA_MALFORMED")
 		}
 		self.openid4VPlink = openid4VPlink
 		self.openID4VpConfig = openID4VpConfig
@@ -83,7 +83,7 @@ public final class OpenId4VpService: @unchecked Sendable, PresentationService {
 		transactionLog = TransactionLogUtils.initializeTransactionLog(type: .presentation, dataFormat: .json)
 	}
 
-	public func startQrEngagement(secureAreaName: String?, crv: CoseEcCurve) async throws -> String {
+	public func startQrEngagement(secureAreaName: String?, keyOptions: KeyOptions) async throws -> String {
 		if unlockData == nil {
 			unlockData = [String: Data]()
 			for (id, key) in transferInfo.privateKeyObjects {
@@ -98,16 +98,16 @@ public final class OpenId4VpService: @unchecked Sendable, PresentationService {
 	///
 	/// - Returns: The requested items.
 	public func receiveRequest() async throws -> UserRequestInfo {
-		guard status != .error, let openid4VPURI = URL(string: openid4VPlink) else { throw PresentationSession.makeError(str: "Invalid link \(openid4VPlink)", code: .invalidUrl) }
+		guard status != .error, let openid4VPURI = URL(string: openid4VPlink) else { throw PresentationSession.makeError(str: "Invalid link \(openid4VPlink)") }
 		openId4Vp = OpenID4VP(walletConfiguration: getWalletConf())
 		switch await openId4Vp.authorize(fetcher: Fetcher<String>(), poster: Poster(session: networking), url: openid4VPURI)  {
 		case .notSecured(data: let rrd):
 			if case .redirectUri = rrd.client { return try handleRequestData(rrd) }
-			else { throw PresentationSession.makeError(str: "Not secured request", code: .notSecuredRequest) }
+			else { throw PresentationSession.makeError(str: "Not secured request") }
 		case .invalidResolution(error: let error, dispatchDetails: let details):
 			logger.error("Invalid resolution: \(error.errorDescription ?? error.localizedDescription)")
 			if let details { logger.error("Details: \(details)") }
-			throw PresentationSession.makeError(str: "Invalid DCQL query: \(error.errorDescription ?? error.localizedDescription)", code: .invalidRequestQuery)
+			throw PresentationSession.makeError(str: "Invalid DCQL query: \(error.errorDescription ?? error.localizedDescription)")
 		case let .jwt(request: rrd):
 			return try handleRequestData(rrd)
 		}
@@ -153,10 +153,11 @@ public final class OpenId4VpService: @unchecked Sendable, PresentationService {
 			requestItems = OpenId4VpUtils.getRequestItems(claimMapPath, idsToDocTypes: transferInfo.idsToDocTypes, formatsRequested: formatsRequested)
 		}
 		self.transactionData = vp.transactionData
-		guard let requestItems, let formatsRequested else { throw PresentationSession.makeError(str: "Invalid request query", code: .invalidRequestQuery) }
+		guard let requestItems, let formatsRequested else { throw PresentationSession.makeError(str: "Invalid request query") }
 		var result = UserRequestInfo(docDataFormats: formatsRequested, itemsRequested: requestItems, deviceRequestBytes: deviceRequestBytes)
 		logger.info("Verifier requested items: \(requestItems.mapValues { $0.mapValues { ar in ar.map(\.elementIdentifier) } })")
-		let rar = ReaderAuthenticationResult(isValidated: readerAuthValidated, certificateIssuer: readerCertificateIssuer.map(MdocHelpers.getCN(from:)), validationMessage: readerCertificateValidationMessage, legalName: rrd.legalName, authBytes: nil, certificateChain: certificateChain)
+		let certificateIssuerName = readerCertificateIssuer.map(MdocHelpers.getCN(from:))
+		let rar = ReaderAuthenticationResult(isValidated: readerAuthValidated, certificateIssuer: certificateIssuerName, validationMessage: readerCertificateValidationMessage, legalName: rrd.legalName, authBytes: nil, certificateChain: certificateChain)
 		result.readerAuthResults = ["": rar]
 		TransactionLogUtils.setCborTransactionLogRequestInfo(result, transactionLog: &transactionLog)
 		return result
@@ -167,7 +168,10 @@ public final class OpenId4VpService: @unchecked Sendable, PresentationService {
 	}
 
 	func generateCborVpToken(itemsToSend: RequestItems) async throws -> (VerifiablePresentation, Data, [Data?], [String]) {
-		let resp = try await MdocHelpers.getDeviceResponseToSend(deviceRequest: nil, issuerSigned: docsCbor, docMetadata: transferInfo.docMetadata, selectedItems: itemsToSend, eReaderKey: eReaderPub, privateKeyObjects: transferInfo.privateKeyObjects, sessionTranscript: sessionTranscript, dauthMethod: .deviceSignature, unlockData: unlockData, zkSpecsRequested: zkSpecsRequested, zkSystemRepository: transferInfo.zkSystemRepository)
+		let docMetadata = transferInfo.docMetadata
+		let privateKeyObjects = transferInfo.privateKeyObjects
+		let zkSystemRepository = transferInfo.zkSystemRepository
+		let resp = try await MdocHelpers.getDeviceResponseToSend(deviceRequest: nil, issuerSigned: docsCbor, docMetadata: docMetadata, selectedItems: itemsToSend, eReaderKey: eReaderPub, privateKeyObjects: privateKeyObjects, sessionTranscript: sessionTranscript, dauthMethod: .deviceSignature, unlockData: unlockData, zkSpecsRequested: zkSpecsRequested, zkSystemRepository: zkSystemRepository)
 		guard let resp else { throw PresentationSession.makeError(str: "DOCUMENT_ERROR") }
 		let vpTokenData = Data(resp.deviceResponse.toCBOR(options: CBOROptions()).encode())
 		let vpTokenStr = vpTokenData.base64URLEncodedString()
@@ -180,40 +184,14 @@ public final class OpenId4VpService: @unchecked Sendable, PresentationService {
 		let docJwtStrings = transferInfo.documentObjects.filter { k,v in Self.filterFormat(transferInfo.dataFormats[k]!, fmt: .sdjwt)}.compactMapValues { String(data: $0, encoding: .utf8) }
 		docsSdJwt = docJwtStrings.compactMapValues { try? parser.getSignedSdJwt(serialisedString: $0) }
 		// make dcqlQueryable
-		var credentialMap = [Document.ID: (DocType, DocDataFormat)]()
-		for (docId, docType) in transferInfo.idsToDocTypes {
-			if let format = formatsRequested[docType] {
-				credentialMap[docId] = (docType, format)
-			}
-		}
+		let credentialMap = OpenId4VpUtils.makeCredentialMap(
+			idsToDocTypes: transferInfo.idsToDocTypes,
+			formatsRequested: formatsRequested
+		)
 		var claimPaths = [Document.ID: [ClaimPath]]()
 		var claimValues = [Document.ID: [ClaimPath: [String]]]()
-		var paths = [ClaimPath](); var values = [ClaimPath: [String]]()
-		// make paths and values for cbor documents
-		for (docId, issuerSigned) in docsCbor ?? [:] {
-			paths.removeAll(); values.removeAll()
-			guard let isNs = issuerSigned.issuerNameSpaces else { continue }
-			for (ns, items) in isNs.nameSpaces {
-				for item in items {
-					logger.info("IssuerSigned document \(docId) namespace \(ns) item: \(item.elementIdentifier)")
-					paths.append(ClaimPath([.claim(name: String(ns)), .claim(name: item.elementIdentifier)]))
-					values[paths.last!] = [item.description]
-				}
-			}
-			claimPaths[docId] = paths
-			claimValues[docId] = values
-		}
-		for (docId, sdjwt) in docsSdJwt ?? [:] {
-			guard let allPathsDict = (try? sdjwt.recreateClaims())?.disclosuresPerClaimPath else { continue }
-			paths.removeAll(); values.removeAll()
-			for (p, disclosures) in allPathsDict {
-				let path = ClaimPath(p.value.map { e in if case .claim(let name) = e { ClaimPathElement.claim(name: name) } else if case .arrayElement(let index) = e { ClaimPathElement.arrayElement(index: index) } else { ClaimPathElement.allArrayElements } } )
-				paths.append(path)
-				values[path] = disclosures
-			}
-			claimPaths[docId] = paths
-			claimValues[docId] = values
-		}
+		OpenId4VpUtils.makeCborClaimData(from: docsCbor, claimPaths: &claimPaths, claimValues: &claimValues)
+		OpenId4VpUtils.makeSdJwtClaimData(from: docsSdJwt, claimPaths: &claimPaths, claimValues: &claimValues)
 		dcqlQueryable = DefaultDcqlQueryable(credentials: credentialMap, claimPaths: claimPaths, claimValues: claimValues)
 	}
 
@@ -224,7 +202,7 @@ public final class OpenId4VpService: @unchecked Sendable, PresentationService {
 	///   - itemsToSend: The selected items to send organized in document types and namespaces
 	public func sendResponse(userAccepted: Bool, itemsToSend: RequestItems, onSuccess: ((URL?) -> Void)?) async throws {
 		guard dcql != nil, let resolved = resolvedRequestData else {
-			throw PresentationSession.makeError(str: "Unexpected error", code: .invalidRequestQuery)
+			throw PresentationSession.makeError(str: "Unexpected error")
 		}
 		guard userAccepted, itemsToSend.count > 0 else {
 			try await SendVpTokens(nil, dcql, resolved, onSuccess)
@@ -232,7 +210,7 @@ public final class OpenId4VpService: @unchecked Sendable, PresentationService {
 		}
 		zkpDocumentIds = [String]()
 		logger.info("Openid4vp request items: \(itemsToSend.mapValues { $0.mapValues { ar in ar.map(\.elementIdentifier) } })")
-		if unlockData == nil { _ = try await startQrEngagement(secureAreaName: nil, crv: .P256) }
+		if unlockData == nil { _ = try await startQrEngagement(secureAreaName: nil, keyOptions: KeyOptions(curve: .P256)) }
 		// tuples of inputDescriptor-id, docId and verifiable presentation
 		// the inputDescriptor-id is used to identify the input descriptor in the presentation submission
 		var inputToPresentations = [(String, String?, VerifiablePresentation)]()
@@ -251,7 +229,9 @@ public final class OpenId4VpService: @unchecked Sendable, PresentationService {
 				let unlockData = try await dpk.secureArea.unlockKey(id: docId)
 				let keyInfo = try await dpk.secureArea.getKeyBatchInfo(id: docId)
 				let dsa = keyInfo.crv.defaultSigningAlgorithm
-				let signer = try SecureAreaSigner(secureArea: dpk.secureArea, id: docId, index: dpk.index, ecAlgorithm: dsa, unlockData: unlockData)
+				let publicKeyCose = try await dpk.secureArea.getPublicKey(id: docId, index: dpk.index, curve: keyInfo.crv)
+				let publicKeyJwk = try publicKeyCose.jwk
+				let signer = try SecureAreaSigner(secureArea: dpk.secureArea, id: docId, index: dpk.index, publicKey: publicKeyJwk.toJoseSwiftJWK(), curve: keyInfo.crv, ecAlgorithm: dsa, unlockData: unlockData)
 				let signAlg = try SecureAreaSigner.getSigningAlgorithm(dsa)
 				let hai = HashingAlgorithmIdentifier(rawValue: transferInfo.hashingAlgs[docId] ?? "") ?? .SHA3256
 				guard let presented = try await OpenId4VpUtils.getSdJwtPresentation(docSigned, hashingAlg: hai.hashingAlgorithm(), signer: signer, signAlg: signAlg, requestItems: items, nonce: vpNonce, aud: vpClientId, transactionData: transactionData) else {
@@ -263,11 +243,11 @@ public final class OpenId4VpService: @unchecked Sendable, PresentationService {
 		try await SendVpTokens(inputToPresentations, dcql, resolved, onSuccess)
 
 	}
-	
+
 	public func waitForDisconnect() async throws {
 		status = .disconnected
 	}
-	
+
 	/// Filter document accordind to the raw format value
 	static func filterFormat(_ df: DocDataFormat, fmt: DocDataFormat) -> Bool { df == fmt }
 
