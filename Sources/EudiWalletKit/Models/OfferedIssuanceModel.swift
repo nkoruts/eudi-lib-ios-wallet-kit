@@ -94,7 +94,7 @@ public struct OfferedDocModel: Sendable {
 	/// Credential metadata from issuer (display, claims, etc.)
 	public let credentialMetadata: ConfigurationCredentialMetadata?
 	// options for the credential
-	public var credentialOptions: CredentialOptions
+	public let credentialOptions: CredentialOptions
 	// key options
 	public let keyOptions: KeyOptions?
 
