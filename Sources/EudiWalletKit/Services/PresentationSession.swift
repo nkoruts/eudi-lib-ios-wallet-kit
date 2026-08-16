@@ -22,6 +22,7 @@ import MdocDataTransfer18013
 import WalletStorage
 import LocalAuthentication
 import struct WalletStorage.Document
+import struct OpenID4VP.PolicyViolation
 /// Presentation session
 ///
 /// This class wraps the ``PresentationService`` instance, providing bindable fields to a SwifUI view
@@ -40,11 +41,15 @@ public final class PresentationSession: @unchecked Sendable, ObservableObject {
 	/// Error message when the ``status`` is in the error state.
 	@Published public var uiError: WalletError?
 	/// Request items selected by the user to be sent to verifier.
-	@Published public var disclosedDocuments: [DocElements] = []
+	@Published public var disclosedDocumentSets: [DisclosedDocumentSet] = []
 	/// Status of the data transfer.
 	@Published public var status: TransferStatus = .initializing
 	/// Device engagement data (QR data for the BLE flow)
 	@Published public var deviceEngagement: String?
+	/// The verifier (wallet relying party) registration policy decoded from the WRPRC carried in the request, if any
+	@Published public var wrpVerifierPolicy: WrpRegistrationPolicy?
+	/// Verifier registration warnings, keyed by credential query identifier; the empty key holds request-wide warnings
+	@Published public var wrpVerifierWarnings: [String:[PolicyViolation]]?
 	// map of document id to (doc type, format, display name) pairs
 	public var docIdToPresentInfo: [Document.ID: DocPresentInfo]!
 	// map of document id to key index to use
@@ -75,54 +80,51 @@ public final class PresentationSession: @unchecked Sendable, ObservableObject {
 	@MainActor
 	/// Decodes a presentation request
 	///
-	/// The ``disclosedDocuments`` property will be set. Additionally ``readerCertIssuer`` and ``readerCertValidationMessage`` may be set
-	/// - Parameter request: Request information
-	func decodeRequest(_ request: UserRequestInfo) throws {
-		guard docIdToPresentInfo.count > 0 else { throw Self.makeError(str: "No documents added to session ")}
+	/// The ``disclosedDocumentSets`` property will be set. Additionally ``readerCertIssuer`` and ``readerCertValidationMessage`` may be set
+	/// - Parameter requests: Request information
+	func decodeRequest(_ requests: [UserRequestInfo]) throws {
+		guard docIdToPresentInfo.count > 0 else { throw WalletError(description: "No documents added to session ", code: .noDocumentsAvailable)}
 		// show the items as checkboxes
-		disclosedDocuments = [DocElements]()
-		for (docId, docPresentInfo) in docIdToPresentInfo {
-			let docType = docPresentInfo.docType
-			let requestFormat = request.docDataFormats[docId] ?? request.docDataFormats[docType]  ?? request.docDataFormats.first(where: { OpenId4VpUtils.vctToDocTypeMatch($0.key, docType)})?.value
-			if requestFormat != docPresentInfo.docDataFormat  { continue }
-			switch requestFormat {
-				case .cbor:
-					guard case let .msoMdoc(issuerSigned) = docPresentInfo.typedData else { continue }
-					guard let docItemsRequested = request.itemsRequested[docId] ?? request.itemsRequested[docType] else { continue }
-					let msoElements = issuerSigned.extractMsoMdocElements(docId: docId, docType: docType, displayName: docPresentInfo.displayName, docClaims: docPresentInfo.docClaims, itemsRequested: docItemsRequested)
-					disclosedDocuments.append(.msoMdoc(msoElements))
-				case .sdjwt:
-					guard case let .sdJwt(signedSdJwt) = docPresentInfo.typedData else { continue }
-					guard let sdItemsRequested = request.itemsRequested[docId] ?? request.itemsRequested[docType] else { continue }
-					let sdJwtElements = signedSdJwt.extractSdJwtElements(docId: docId, vct: docType, displayName: docPresentInfo.displayName, docClaims: docPresentInfo.docClaims, itemsRequested: sdItemsRequested)
-					guard let sdJwtElements else { continue }
-					disclosedDocuments.append(.sdJwt(sdJwtElements))
-				default: logger.error("Unsupported format \(docPresentInfo.docDataFormat) for \(docId)")
+		disclosedDocumentSets.removeAll()
+		for request in requests {
+			var disclosedElements = [DocElements]()
+			for (docId, docPresentInfo) in docIdToPresentInfo {
+				let docType = docPresentInfo.docType
+				let requestFormat = request.docDataFormats[docId] ?? request.docDataFormats[docType]  ?? request.docDataFormats.first(where: { OpenId4VpUtils.vctToDocTypeMatch($0.key, docType)})?.value
+				if requestFormat != docPresentInfo.docDataFormat  { continue }
+				switch requestFormat {
+					case .cbor:
+						guard case let .msoMdoc(issuerSigned) = docPresentInfo.typedData else { continue }
+						guard let docItemsRequested = request.itemsRequested[docId] ?? request.itemsRequested[docType] else { continue }
+						let msoElements = issuerSigned.extractMsoMdocElements(docId: docId, docType: docType, displayName: docPresentInfo.displayName, docClaims: docPresentInfo.docClaims, itemsRequested: docItemsRequested)
+						disclosedElements.append(.msoMdoc(msoElements))
+					case .sdjwt:
+						guard case let .sdJwt(signedSdJwt) = docPresentInfo.typedData else { continue }
+						guard let sdItemsRequested = request.itemsRequested[docId] ?? request.itemsRequested[docType] else { continue }
+						let sdJwtElements = signedSdJwt.extractSdJwtElements(docId: docId, vct: docType, displayName: docPresentInfo.displayName, docClaims: docPresentInfo.docClaims, itemsRequested: sdItemsRequested)
+						guard let sdJwtElements else { continue }
+						disclosedElements.append(.sdJwt(sdJwtElements))
+					default: logger.error("Unsupported format \(docPresentInfo.docDataFormat) for \(docId)")
+				}
 			}
-
-		}
-		if let authResult = request.defaultReaderAuthResult, let readerAuthority = authResult.certificateIssuer {
-			readerCertIssuer = readerAuthority
-			readerCertIssuerValid = authResult.isValidated
-			readerCertValidationMessage = authResult.validationMessage
-		}
-		readerLegalName = request.defaultReaderAuthResult?.legalName
-		// TODO: localizationKey is kept for backward compatibility — clients can migrate to use `code` instead
-		if disclosedDocuments.count == 0 { throw Self.makeError(str: Self.NotAvailableStr, localizationKey: "request_data_no_document", code: .noDocumentsAvailable) }
+			if let authResult = request.defaultReaderAuthResult, let readerAuthority = authResult.certificateIssuer {
+				readerCertIssuer = readerAuthority
+				readerCertIssuerValid = authResult.isValidated
+				readerCertValidationMessage = authResult.validationMessage
+			}
+			readerLegalName = request.defaultReaderAuthResult?.legalName
+			// TODO: localizationKey is kept for backward compatibility — clients can migrate to use `code` instead
+			if disclosedElements.count == 0 { throw WalletError(description: Self.notAvailableStr, localizationKey: "request_data_no_document", code: .noDocumentsAvailable) }
+			let warningsKey = if presentationService.flow == .ble { presentationService.wrpVerifierWarnings?.keys.first(where: { !$0.isEmpty }) } else { request.requestName }
+			let warningSet: [PolicyViolation]? = if let warnings = presentationService.wrpVerifierWarnings, let warningsKey { warnings[warningsKey] } else { nil }
+			disclosedDocumentSets.append(DisclosedDocumentSet(docElements: disclosedElements, warnings: warningSet))
+		} // next request
+		wrpVerifierPolicy = presentationService.wrpVerifierPolicy
+		wrpVerifierWarnings = presentationService.wrpVerifierWarnings
 		status = .requestReceived
 	}
 
-	static let NotAvailableStr = "The requested document is not available in your EUDI Wallet. Please contact the authorised issuer for further information."
-
-	public static func makeError(str: String, localizationKey: String? = nil, code: WalletError.Code? = nil, context: [String: String] = [:]) -> WalletError {
-		logger.error(Logger.Message(unicodeScalarLiteral: str))
-		return WalletError(description: str, localizationKey: localizationKey, code: code, context: context)
-	}
-
-	public static func makeError(err: LocalizedError) -> WalletError {
-		logger.error(Logger.Message(unicodeScalarLiteral: err.errorDescription ?? err.localizedDescription))
-		return WalletError(description: err.errorDescription ?? err.localizedDescription)
-	}
+	static let notAvailableStr = "The requested document is not available in your EUDI Wallet. Please contact the authorised issuer for further information."
 
 	/// Start QR engagement to be presented to verifier
 	///
@@ -130,7 +132,7 @@ public final class PresentationSession: @unchecked Sendable, ObservableObject {
 	/// On error ``uiError`` will be filled and ``status`` will be ``.error``
 	public func startQrEngagement() async throws {
 		// TODO: localizationKey is kept for backward compatibility — clients can migrate to use `code` instead
-		if docIdToPresentInfo.count == 0 { await setError(Self.NotAvailableStr, localizationKey: "request_data_no_document", code: .noDocumentsAvailable); return }
+		if docIdToPresentInfo.count == 0 { await setError(Self.notAvailableStr, localizationKey: "request_data_no_document", code: .noDocumentsAvailable); return }
 		do {
 			let data = try await presentationService.startQrEngagement(secureAreaName: nil, keyOptions: KeyOptions(curve: .P256, accessControl: []))
 			await MainActor.run {
@@ -138,8 +140,8 @@ public final class PresentationSession: @unchecked Sendable, ObservableObject {
 				status = .qrEngagementReady
 			}
 		} catch {
-			let walletCode = Self.mapTransferError(error)
-			await setError(error.localizedDescription, code: walletCode)
+			let walletCode = Self.mapTransferError(error) ?? .internalError
+			await setError(error.localizedDescription, code: walletCode, innerError: error)
 		}
 	}
 
@@ -155,25 +157,25 @@ public final class PresentationSession: @unchecked Sendable, ObservableObject {
 	}
 
 	@MainActor
-	func setError(_ description: String, localizationKey: String? = nil, code: WalletError.Code? = nil) {
+	func setError(_ description: String, localizationKey: String? = nil, code: WalletError.Code, innerError: Error? = nil) {
 		status = .error
-		uiError = WalletError(description: description, localizationKey: localizationKey, code: code)
+		uiError = WalletError(description: description, localizationKey: localizationKey, code: code, innerError: innerError)
 	}
 
 	/// Receive request from verifer
 	///
 	/// The request is futher decoded internally. See also ``decodeRequest(_:)``
-	/// On success ``disclosedDocuments`` published variable will be set  and ``status`` will be ``.requestReceived``
+	/// On success ``disclosedDocumentSets`` published variable will be set  and ``status`` will be ``.requestReceived``
 	/// On error ``uiError`` will be filled and ``status`` will be ``.error``
 	/// - Returns: A request object
-	public func receiveRequest() async -> UserRequestInfo? {
+	public func receiveRequest() async -> [UserRequestInfo]? {
 		do {
 			let request = try await presentationService.receiveRequest()
 			try await decodeRequest(request)
 			return request
 		} catch {
 			let walletError = error as? WalletError
-			await setError(error.localizedDescription, localizationKey: walletError?.localizationKey, code: walletError?.code)
+			await setError(error.localizedDescription, localizationKey: walletError?.localizationKey, code: walletError?.code ?? .internalError, innerError: error)
 			return nil
 		}
 	}
@@ -198,17 +200,25 @@ public final class PresentationSession: @unchecked Sendable, ObservableObject {
 	/// - Parameters:
 	///   - userAccepted: Whether user confirmed to send the response
 	///   - itemsToSend: Data to send organized into a hierarchy of doc.types and namespaces
+	///   - deviceNameSpacesToSend: Optional device-signed namespaces to include in the response
 	///   - onCancel: Action to perform if the user cancels the biometric authentication
-	public func sendResponse(userAccepted: Bool, itemsToSend: RequestItems, onCancel: (() -> Void)? = nil, onSuccess: (@Sendable (URL?) -> Void)? = nil) async throws {
+	///   - onSuccess: Callback invoked on successful response with an optional redirect URL
+	public func sendResponse(userAccepted: Bool, itemsToSend: RequestItems, deviceNameSpacesToSend: RequestDeviceNameSpaces? = nil, onCancel: (() -> Void)? = nil, onSuccess: (@Sendable (URL?) -> Void)? = nil) async throws {
 		do {
 			await MainActor.run { status = .userSelected }
-			let action = { [ weak self] in _ = try await self?.presentationService.sendResponse(userAccepted: userAccepted, itemsToSend: itemsToSend, onSuccess: onSuccess) }
+			let action = { [ weak self] in _ = try await self?.presentationService.sendResponse(
+				userAccepted: userAccepted,
+				itemsToSend: itemsToSend,
+				deviceNameSpacesToSend: deviceNameSpacesToSend,
+				onSuccess: onSuccess)
+			}
 			try await EudiWallet.authorizedAction(action: action, disabled: !userAuthenticationRequired, dismiss: { onCancel?() }, localizedReason: NSLocalizedString("authenticate_to_share_data", comment: "") )
 			try await updateKeyBatchInfoAndDeleteCredentialIfNeeded(presentedIds: Array(itemsToSend.keys), zkpDocumentIds: presentationService.zkpDocumentIds)
 			await MainActor.run { status = .responseSent; storageManager?.objectWillChange.send() }
 			if let transactionLogger { do { try await transactionLogger.log(transaction: presentationService.transactionLog) } catch { logger.error("Failed to log transaction: \(error)") } }
 		} catch {
-			await setError(error.localizedDescription)
+			let walletError = error as? WalletError
+			await setError(error.localizedDescription, code: walletError?.code ?? .internalError, innerError: error)
 			let setErrorTransactionLog = presentationService.transactionLog.copy(status: .failed, errorMessage: error.localizedDescription)
 			if let transactionLogger { do { try await transactionLogger.log(transaction: setErrorTransactionLog) } catch { logger.error("Failed to log transaction") } }
 			throw error
@@ -228,7 +238,7 @@ public final class PresentationSession: @unchecked Sendable, ObservableObject {
 			try await presentationService.waitForDisconnect()
 			await MainActor.run { status = .disconnected }
 		} catch {
-			await setError(error.localizedDescription)
+			await setError(error.localizedDescription, code: .internalError, innerError: error)
 		}
 
 	}

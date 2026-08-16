@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import PackageDescription
@@ -13,13 +13,13 @@ let package = Package(
 			targets: ["EudiWalletKit"])
 	],
 	dependencies: [
-		.package(url: "https://github.com/eu-digital-identity-wallet/eudi-lib-ios-iso18013-data-transfer.git", exact: "0.20.3"),
-		.package(url: "https://github.com/eu-digital-identity-wallet/eudi-lib-ios-wallet-storage.git", exact: "0.20.1"),
-		.package(url: "https://github.com/eu-digital-identity-wallet/eudi-lib-sdjwt-swift.git", exact: "0.14.4"),
-		.package(url: "https://github.com/eu-digital-identity-wallet/eudi-lib-ios-openid4vci-swift.git", exact: "0.39.0"),
-		.package(url: "https://github.com/eu-digital-identity-wallet/eudi-lib-ios-siop-openid4vp-swift.git", exact: "0.33.1"),
-		.package(url: "https://github.com/eu-digital-identity-wallet/eudi-lib-ios-statium-swift.git", exact: "0.4.0"),
-    	.package(url: "https://github.com/apple/swift-docc-plugin", from: "1.0.0"),
+		.package(url: "https://github.com/eu-digital-identity-wallet/eudi-lib-ios-iso18013-data-transfer.git", exact: "0.24.1"),
+		.package(url: "https://github.com/eu-digital-identity-wallet/eudi-lib-ios-wallet-storage.git", exact: "0.23.2"),
+		.package(url: "https://github.com/eu-digital-identity-wallet/eudi-lib-sdjwt-swift.git", exact: "0.14.6"),
+		.package(url: "https://github.com/eu-digital-identity-wallet/eudi-lib-ios-openid4vp-swift.git", exact: "0.41.0"),
+		.package(url: "https://github.com/eu-digital-identity-wallet/eudi-lib-ios-openid4vci-swift.git", exact: "0.53.0"),
+		.package(url: "https://github.com/eu-digital-identity-wallet/eudi-lib-ios-statium-swift.git", exact: "0.5.0"),
+    	.package(url: "https://github.com/apple/swift-docc-plugin", from: "1.5.0"),
 	],
 	targets: [
 		// Targets are the basic building blocks of a package, defining a module or a test suite.
@@ -29,7 +29,7 @@ let package = Package(
 			dependencies: [
 				.product(name: "MdocDataTransfer18013", package: "eudi-lib-ios-iso18013-data-transfer"),
 				.product(name: "WalletStorage", package: "eudi-lib-ios-wallet-storage"),
-				.product(name: "OpenID4VP", package: "eudi-lib-ios-siop-openid4vp-swift"),
+				.product(name: "OpenID4VP", package: "eudi-lib-ios-openid4vp-swift"),
 				.product(name: "OpenID4VCI", package: "eudi-lib-ios-openid4vci-swift"),
 				.product(name: "eudi-lib-sdjwt-swift", package: "eudi-lib-sdjwt-swift"),
 				.product(name: "StatiumSwift", package: "eudi-lib-ios-statium-swift"),

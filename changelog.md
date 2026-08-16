@@ -1,4 +1,214 @@
-## v0.31.0
+## v0.39.2
+
+- `OfferedIssuanceModel`: Add `wrpVciRegistrationPolicy: WrpRegistrationPolicy?` and `wrpVciWarnings: [String: [PolicyViolation]]?` properties to surface the issuer's registration certificate policy and validation warnings at offer-resolution time (before issuance).
+
+## v0.39.1
+
+- Fix log entries overwriting each other.
+
+## v0.39.0
+
+- Add WRP registration certificate validation for OpenID4VCI.
+
+## v0.38.0
+
+- Implement OpenID4VP wallet relying party registration handling.
+
+## v0.37.6
+
+- Refactor document status handling to use `StatusList` instead of `StatusIdentifier` across services and models.
+- Update `eudi-lib-ios-iso18013-data-transfer` to version 0.24.0.
+
+## v0.37.5
+
+- Update `eudi-lib-ios-openid4vci-swift` to version 0.51.0.
+
+## v0.37.4
+
+- Fix credential usage count logic to correctly calculate remaining usage counts.
+- Update `eudi-lib-ios-wallet-storage` to version 0.23.2.
+
+## v0.37.3
+
+- Update `eudi-lib-ios-iso18013-data-transfer` to version 0.23.5.
+
+## v0.37.2
+
+- Add L2CAP PSM support in BLE device engagement QR code.
+- Update `eudi-lib-ios-iso18013-data-transfer` to version 0.23.4 and `eudi-lib-ios-wallet-storage` to version 0.23.1.
+
+## v0.37.1
+
+- Update negative consent message to use `access_denied`.
+
+## v0.37.0
+
+- Add BLE transport factory support to `EudiWallet` and related services.
+- Update `eudi-lib-ios-iso18013-data-transfer` to version 0.23.3.
+
+## v0.36.2
+
+- Fix trust error code reporting for untrusted reader certificate chains.
+- Fix DCQL value matching for SD-JWT claims by extracting values from disclosures.
+- Fix DCQL array query extraction in `getSdJwtPresentation`.
+
+## v0.36.1
+
+- Add `WebKeySet` parameter to `PreregisteredClient` initializer.
+- Fix optional unwrapping of nonce in `getKeyAttestationJWT`.
+- Refactor trust configuration for platform-specific support.
+- Update swift-tools-version to 6.2.
+- Update `eudi-lib-ios-openid4vp-swift` to version 0.35.1 and `eudi-lib-ios-iso18013-data-transfer` to version 0.23.1.
+
+## v0.36.0
+
+### WIA / Key Attestation Updates
+
+- Generate a unique DPoP key-id per issuer identifier.
+- Drop `jwt-without-attestation` support flag.
+- Fix JWT `ProofType` with attestation issuance; create key binding for the first key only.
+- Refactor `deferredCredentialUseCase` to fix response encryption handling.
+- Show a friendly error in case of status check failure.
+- Update `eudi-lib-ios-openid4vci-swift` to version 0.50.0.
+
+## v0.35.2
+
+- Fixes for ETSI trust validation.
+
+## v0.35.1
+
+- Make `WalletError` code mandatory.
+- Populate `documentId`, `docType`, and `displayName` in `TransactionLog` for OpenID4VP and BLE flows.
+- Add transaction log entry for negative consent case.
+
+## v0.35.0
+
+### ETSI Trusted Lists (LOTL/LOTL) Integration
+
+Trust validation now uses ETSI Trusted Lists via `EtsiTrustManager` instead of manual root certificate arrays and `SecTrust`-based validation. A new `TrustConfiguration` struct centralises all trust-related settings and is required when initialising `EudiWallet`.
+
+- **Issuer certificate validation** during OpenID4VCI issuance uses the configured issuer trust manager (with optional fallback trust source).
+- **Reader/relying-party certificate validation** during OpenID4VP and BLE presentations uses the access trust manager (WRPAC verification context).
+- **Status token signature validation** now verifies the x5c certificate chain against the trust configuration instead of ignoring signatures.
+- **`statusTrustPolicy`** allows controlling trust failure behaviour specifically for status list tokens (`.enforce` or `.warning`). Defaults to `.enforce`.
+- **Signed issuer metadata** is validated against the trust anchors when `requireSignedMetadata` is enabled (default).
+- Per doc-type trust policy overrides are supported via `TrustConfiguration.docTypePolicies`.
+
+### Breaking Changes
+
+- **`EudiWallet.init` requires a new `trustConfig` parameter**: A `TrustConfiguration` instance must be supplied when creating the wallet.
+- **`EudiWalletConfiguration.trustedReaderRootCertificates` removed**: Reader trust anchors are now supplied via `TrustConfiguration.accessTrustManager`.
+- **`EudiWalletConfiguration.crlRevocationPolicy` removed**: Revocation handling is managed internally by the `TrustConfiguration`.
+
+### New Types & Properties
+
+- `TrustConfiguration` — describes trust sources, policies, clock skew, and signed metadata requirements.
+- `IssuerMetadataChainTrust` — bridges `EtsiTrustManager` into the OpenID4VCI issuer metadata signature verification flow.
+- `EudiWallet.trustConfig` — public property exposing the active trust configuration.
+
+## v0.34.4
+
+- Make `isValid` function asynchronous for certificate chain validation.
+- Update `eudi-lib-ios-statium-swift` to version 0.5.0 and `eudi-lib-ios-openid4vci-swift` to version 0.41.0.
+
+## v0.34.3
+
+- Send single attestation proof for key batch.
+
+## v0.34.2
+
+- Remove `allowPresentingPartialClaims` flag.
+
+## v0.34.1
+
+- Refactor SD-JWT element extraction and tree building logic to filter children of requested doc-claims.
+- Add `docTypeDisplayNames` parameter to `resolveDcql` method.
+
+## v0.34.0
+
+### Transaction Data for mso_mdoc Credentials
+
+- Implement transaction data support for mso_mdoc credentials using DCQL.
+- Change `sendResponse` method signature.
+- Update `eudi-lib-ios-wallet-storage` to version 0.21.0 and `eudi-lib-ios-iso18013-data-transfer` to version 0.21.0.
+
+## v0.33.5
+
+- Update `eudi-lib-sdjwt-swift` to version 0.14.6.
+
+## v0.33.4
+
+- Add preferred response mode configuration for OpenID4VP authorization responses.
+
+## v0.33.3
+
+- Refactor SD-JWT validation and remove unnecessary public key retrieval during OpenID4VP presentation.
+
+## v0.33.2
+
+- Fix batch size handling for `limitedTime` reuse policy.
+- Enhance document handling and revocation policy integration.
+- Update `eudi-lib-ios-siop-openid4vp-swift` to version 0.35.0, `eudi-lib-ios-iso18013-data-transfer` to version 0.22.0, and `eudi-lib-ios-wallet-storage` to version 0.22.0.
+
+## v0.33.1
+
+### What's Changed
+
+- Wire up credential issuer notification endpoint support (OpenID4VCI §11).
+- Fix DPoP signing to recreate the key when an existing key is incompatible.
+- Add tests for issuance notification endpoint wiring.
+- Update `eudi-lib-ios-openid4vci-swift` dependency to version `0.40.0`.
+
+## v0.33.0
+
+### DCQL Multiple Credential Selection
+
+DCQL query resolution now supports the `multiple` flag on credential queries and produces multiple selectable credential combinations when more than one credential matches a query.
+
+- `resolveDcql` returns `CredentialSelectionSetOptions` (an `OrderedDictionary<String, CredentialSelectionSet>`) instead of `[String: [ClaimsQuery]]`. Each entry represents a selectable combination of credentials that satisfies the query.
+- `credential_sets` with multiple options and optional sets are fully supported, including Cartesian product expansion across required and optional sets.
+
+### Breaking Changes
+
+- **`PresentationService.receiveRequest()` return type changed**: Returns `[UserRequestInfo]` instead of `UserRequestInfo`. Each element corresponds to a credential selection option.
+- **`PresentationSession.disclosedDocuments` renamed to `disclosedDocumentSets`**: The type changed from `[DocElements]` to `[[DocElements]]` to support multiple credential selection options.
+- **`PresentationSession.receiveRequest()` return type changed**: Returns `[UserRequestInfo]?` instead of `UserRequestInfo?`.
+- **`OpenId4VciConfiguration.requirePAR` renamed to `parUsage`**: The type changed from `Bool` to `ParUsage`. The default value is `.required(authorizationCodeDPoPBinding: true)`.
+
+### Dependency Updates
+
+- Updated `eudi-lib-ios-siop-openid4vp-swift` to version 0.34.1.
+- Updated `eudi-lib-ios-openid4vci-swift` to version 0.40.1.
+- Updated `eudi-lib-ios-iso18013-data-transfer` to version 0.21.3.
+
+## v0.32.1
+
+### What's Changed
+
+- Refactor batch size handling in `OpenId4VciService` to correctly accommodate issuer-specified limited-time reuse policy.
+
+## v0.32.0
+
+### Credential Reuse Policy Enforcement
+
+Issuer-defined credential reuse policies (ETSI TS 119 472-3 / ARF Annex II) now take precedence over caller-supplied `[CredentialOptions](https://eu-digital-identity-wallet.github.io/eudi-lib-ios-iso18013-data-model/documentation/mdocdatamodel18013/credentialoptions)`.
+The wallet currently supports 3 ARF Annex II reuse methods: `.limitedTime`, `.onceOnly`, and `.rotatingBatch`.
+
+When the issuer metadata contains a `credentialReusePolicy`, the resolved `credentialPolicy`, `batchSize`, `reissueTriggerUnused`, and `reissueTriggerLifetimeLeft` fields are always derived from that policy and override the caller's values.
+
+This enforcement applies to all issuance entry points: `issueDocuments`, `issueDocumentsByOfferUrl`, `reissueDocument`, `requestDeferredIssuance`, and `resumePendingIssuance`.
+
+- When ETSI TS 119 472-3 Once-Only reuse method is applied, the oneTimeUse credential policy is used.
+- When ETSI TS 119 472-3 Limited-time reuse method is applied, the rotateUse credential policy is used and the batch size is set to 1.
+- When ETSI TS 119 472-3 Rotating-Batch reuse method is applied, the rotateUse credential policy is used.
+
+### API Additions
+
+- Added `EudiWallet.getDocumentCredentialOptions(documentId:)` to retrieve persisted `CredentialOptions` from stored document metadata.
+
+### Bug Fixes
+
+- **`OpenId4VpService.receiveRequest()` now respects custom networking**: The `Fetcher<String>()` used to fetch the authorization request object was created without the configured `networking` session, causing errors when a custom networking implementation was set on `EudiWallet`. The fetcher is now initialized with the same `networking` instance as the rest of the VP flow.
 
 ### Breaking Changes
 
@@ -13,6 +223,95 @@ func getWalletAttestation(signingKey: SigningKeyProxy) async throws -> String {
     return try await attestationService.getWalletAttestation(for: key)
 }
 ```
+
+## v0.31.3
+
+### What's Changed
+
+- 393 dcql resolution fails fix.
+
+## v0.31.2
+
+### What's Changed
+
+- Refactor binding key creation to include proof subject.
+
+## v0.31.1
+
+### What's Changed
+
+- Append `client_id` to redirect URL in authorization code flow.
+
+## v0.31.0
+
+### What's Changed
+
+- Preserve `WalletError.code` in `receiveRequest` error handling.
+- Refactor wallet attestation handling and update dependencies.
+
+### Breaking Changes
+
+- **`WalletAttestationsProvider` protocol change**: The `getWalletAttestation` method signature changed:
+  - **Before**: `func getWalletAttestation(key: any JWK) async throws -> String`
+  - **After**: `func getWalletAttestation(signingKey: SigningKeyProxy) async throws -> String`
+  - The parameter is now a `SigningKeyProxy` (from the OpenID4VCI library) instead of a plain `JWK`. Use `signingKey.getPublicJWK()` to obtain the public JWK:
+
+```swift
+func getWalletAttestation(signingKey: SigningKeyProxy) async throws -> String {
+    let key = try signingKey.getPublicJWK()
+    return try await attestationService.getWalletAttestation(for: key)
+}
+```
+
+## v0.30.7
+
+### What's Changed
+
+- Update dependencies for `eudi-lib-ios-sdjwt-swift` and `eudi-lib-ios-openid4vci-swift`.
+
+## v0.30.6
+
+### What's Changed
+
+- Update `eudi-lib-ios-iso18013-data-transfer` dependency version to `0.20.3`.
+
+## v0.30.5
+
+### What's Changed
+
+- Refactor QR engagement method and update dependency.
+- Fix BLE presentation to not require Face ID / Touch ID.
+
+## v0.30.4
+
+### What's Changed
+
+- Update default `clientId` in `OpenId4VciConfiguration`.
+- Refactor credential configuration and update dependencies.
+- Fix issuing EHIC document with Kotlin issuer (configuration identifier: `urn:eudi:ehic:1:dc+sd-jwt-jws-json`).
+- Set key user-presence policy by default. To avoid biometric authentication during issuing, set empty `accessControl`:
+
+```swift
+let keyOptions = KeyOptions(curve: .P256, secureAreaName: "Software", accessControl: [])
+```
+
+## v0.30.3
+
+### What's Changed
+
+- Fix SD-JWT array resolution to omit undisclosed elements.
+
+## v0.30.2
+
+### What's Changed
+
+- Enhance deferred issuance handling.
+
+## v0.30.1
+
+### What's Changed
+
+- Update `wallet-storage` dependency version to `0.20.0`.
 
 ## v0.30.0
 
@@ -29,6 +328,13 @@ When a counter value changes, the corresponding document model publishes the cha
     Task { try? await wallet.refreshUsageCounters() }
 }
 ```
+
+## v0.29.5
+
+### What's Changed
+
+- Expose `ConfigurationCredentialMetadata` on `OfferedDocModel`.
+- Update `eudi-lib-sdjwt-swift` dependency versions (`0.14.2`, then `0.14.3`).
 
 ## v0.29.4
 ### Credential Display Images Downloaded at Issuance Time

@@ -42,11 +42,28 @@ You can set it during initialization via ``EudiWalletConfiguration/bleTransferMo
 ```swift
 let config = EudiWalletConfiguration(
     serviceName: "my_wallet_app",
-    trustedReaderCertificates: [Data(name: "eudi_pid_issuer_ut", ext: "der")!],
     bleTransferMode: .server  // default; use .client or .both as needed
 )
-let wallet = try! EudiWallet(eudiWalletConfig: config)
+let trustConfig = TrustConfiguration(trustSource: .etsi(.eudiRef), fallbackTrustSource: nil)
+let wallet = try! EudiWallet(eudiWalletConfig: config, trustConfig: trustConfig)
 wallet.bleTransferMode = .client
+```
+
+### BLE Transport Factory
+
+The ``EudiWallet/bleTransportFactory`` property lets you plug in a custom BLE transport implementation for proximity presentation. This enables alternative BLE communication channels (e.g., L2CAP or a custom BLE client mdoc transport) without modifying the library.
+
+A transport factory conforms to the `BleTransportFactory` protocol and provides `createServer()` and `createClient()` methods that each return an `MdocBleTransport` instance. When `nil` (the default), `DefaultBleTransportFactory` is used, which creates the standard GATT server/central transports.
+
+```swift
+// Provide a custom factory at initialization
+let config = EudiWalletConfiguration(
+    serviceName: "my_wallet_app",
+    bleTransferMode: .server,
+    bleTransportFactory: MyCustomTransportFactory()
+)
+let trustConfig = TrustConfiguration(trustSource: .etsi(.eudiRef), fallbackTrustSource: nil)
+let wallet = try! EudiWallet(eudiWalletConfig: config, trustConfig: trustConfig)
 ```
 
 ### OpenID4VCI Configuration
@@ -58,14 +75,16 @@ The wallet now supports multiple OpenID4VCI issuer configurations for enhanced f
 let issuerConfigurations: [String: OpenId4VciConfiguration] = [
     "eudi_pid_issuer": OpenId4VciConfiguration(
         credentialIssuerURL: "https://pid.issuer.example.com",
+        keyAttestationsConfig: KeyAttestationConfiguration(walletAttestationsProvider: myWalletAttestationsProvider),
         requireDpop: true,
-        issuerMetadataPolicy: .requireSigned,
+        issuerMetadataPolicy: .requireSigned(issuerTrust: issuerTrustAnchor),
         dpopKeyOptions: KeyOptions(
             secureAreaName: "SecureEnclave", curve: .P256, accessControl: .requireUserPresence
         )
     ),
     "mdl_issuer": OpenId4VciConfiguration(
         credentialIssuerURL: "https://mdl.issuer.example.com",
+        keyAttestationsConfig: KeyAttestationConfiguration(walletAttestationsProvider: myWalletAttestationsProvider),
         requireDpop: false,
         issuerMetadataPolicy: .ignoreSigned
     )

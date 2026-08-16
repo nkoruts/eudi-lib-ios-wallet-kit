@@ -21,14 +21,12 @@ import MdocDataTransfer18013
 
 /// Configuration for EudiWallet
 public struct EudiWalletConfiguration: Sendable {
-	/// The service name for the keychain
+    /// The service name for the keychain
 	public let serviceName: String
 	/// The [access group](https://developer.apple.com/documentation/security/ksecattraccessgroup) that documents are stored in.
 	public let accessGroup: String?
-	/// Whether user authentication via biometrics or passcode is required before sending user data
+    /// Whether user authentication via biometrics or passcode is required before sending user data
 	public let userAuthenticationRequired: Bool
-	/// Trusted root certificates to validate the reader authentication certificate
-	public let trustedReaderRootCertificates: [x5chain]?
 	/// Method to perform mdoc authentication (MAC or signature). Defaults to device signature
 	public let deviceAuthMethod: DeviceAuthMethod
 	/// preferred UI culture for localization of display names. It must be a 2-letter language code. If not set, the system locale is used
@@ -40,6 +38,9 @@ public struct EudiWalletConfiguration: Sendable {
 	/// - `.client`: The holder device acts as a GATT central (client), scanning and connecting to the reader's peripheral.
 	/// - `.both`: The holder device supports both peripheral server and central client modes simultaneously.
 	public let bleTransferMode: BleTransferMode
+	/// Optional factory for creating custom BLE transport instances (e.g., L2CAP, BLE client mdoc).
+	/// When `nil`, the default GATT server/central transports are used.
+	public let bleTransportFactory: (any BleTransportFactory)?
 	/// Default service name for the keychain, used if no service name is provided in the initializer
 	static let defaultServiceName: String = "eudiw"
 
@@ -47,19 +48,19 @@ public struct EudiWalletConfiguration: Sendable {
 		serviceName: String? = nil,
 		accessGroup: String? = nil,
 		userAuthenticationRequired: Bool = false,
-		trustedReaderRootCertificates: [x5chain]? = nil,
 		deviceAuthMethod: DeviceAuthMethod = .deviceSignature,
 		uiCulture: String? = nil,
 		logFileName: String? = nil,
-		bleTransferMode: BleTransferMode = .server
+		bleTransferMode: BleTransferMode = .server,
+		bleTransportFactory: (any BleTransportFactory)? = nil
 	) {
 		self.serviceName = serviceName ?? Self.defaultServiceName
 		self.accessGroup = accessGroup
-		self.userAuthenticationRequired = userAuthenticationRequired
-		self.trustedReaderRootCertificates = trustedReaderRootCertificates
+        self.userAuthenticationRequired = userAuthenticationRequired
 		self.deviceAuthMethod = deviceAuthMethod
 		self.uiCulture = uiCulture
 		self.logFileName = logFileName
 		self.bleTransferMode = bleTransferMode
+		self.bleTransportFactory = bleTransportFactory
 	}
 }

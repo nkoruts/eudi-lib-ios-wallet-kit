@@ -17,6 +17,7 @@ limitations under the License.
 import Foundation
 import MdocDataModel18013
 import MdocDataTransfer18013
+import struct OpenID4VP.PolicyViolation
 import struct WalletStorage.Document
 
 /// [Doc Types to [Namespace to Items]] dictionary
@@ -32,17 +33,22 @@ public protocol PresentationService: Sendable {
 	/// Generate a QR code to be shown to verifier (optional)
 	func startQrEngagement(secureAreaName: String?, keyOptions: KeyOptions) async throws -> String
 	/// Receive request.
-	func receiveRequest() async throws -> UserRequestInfo
+	func receiveRequest() async throws -> [UserRequestInfo]
 
 	var transactionLog: TransactionLog { get }
 	
-	var  zkpDocumentIds: [Document.ID]? { get }
-
+	var zkpDocumentIds: [Document.ID]? { get }
+	/// The verifier (relying party) registration policy decoded from the WRPRC carried in the request, if any
+	var wrpVerifierPolicy: WrpRegistrationPolicy?  { get }
+	/// Warnings produced during WRPRC validation, keyed by credential query identifier; the empty key holds request-wide warnings
+	var wrpVerifierWarnings: [String: [PolicyViolation]]? { get }
 	/// Send response to verifier
 	/// - Parameters:
 	///   - userAccepted: True if user accepted to send the response
 	///   - itemsToSend: The selected items to send organized in document types and namespaces (see ``RequestItems``)
-	func sendResponse(userAccepted: Bool, itemsToSend: RequestItems, onSuccess: ( @Sendable (URL?) -> Void)?) async throws
+	///   - deviceNameSpacesToSend: Optional device-signed namespaces to include in the response
+	///   - onSuccess: Callback invoked on successful response with an optional redirect URL
+	func sendResponse(userAccepted: Bool, itemsToSend: RequestItems, deviceNameSpacesToSend: RequestDeviceNameSpaces?, onSuccess: ( @Sendable (URL?) -> Void)?) async throws
 	
 	/// wait for disconnect
 	func waitForDisconnect() async throws

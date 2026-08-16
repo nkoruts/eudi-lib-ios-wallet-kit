@@ -22,6 +22,7 @@ import Logging
 import eudi_lib_sdjwt_swift
 import SwiftyJSON
 import OpenID4VCI
+import JOSESwift
 
 public final class SdJwtUtils {
 
@@ -40,11 +41,11 @@ public final class SdJwtUtils {
 		let statusListJson = statusJson?["status_list"]?.dictionary
 		let statusURI = statusListJson?["uri"]?.string
 		let statusIndex = statusListJson?["idx"]?.int32
-		let statusIdentifier: StatusIdentifier? = if let statusURI, let statusIndex { StatusIdentifier(idx: Int(statusIndex), uriString: statusURI) } else { nil }
+		let statusList: StatusList? = if let statusURI, let statusIndex { StatusList(idx: Int(statusIndex), uri: statusURI) } else { nil }
 		let credentialIssuerIdentifier = md?.credentialIssuerIdentifier
 		let configurationIdentifier = md?.configurationIdentifier
 		let displayName = docMetadata?.getDisplayName(uiCulture)
-		let configuration = DocClaimsModelConfiguration(id: doc.id, createdAt: doc.createdAt, docType: doc.docType, displayName: displayName, display: docMetadata?.display, issuerDisplay: docMetadata?.issuerDisplay, credentialIssuerIdentifier: credentialIssuerIdentifier, configurationIdentifier: configurationIdentifier, validFrom: validFrom, validUntil: validUntil, statusIdentifier: statusIdentifier, credentialsUsageCounts: nil, credentialPolicy: docKeyInfo.credentialPolicy, secureAreaName: docKeyInfo.secureAreaName, modifiedAt: doc.modifiedAt, docClaims: docClaims, docDataFormat: .sdjwt, hashingAlg: recreatedClaims.hashingAlg)
+		let configuration = DocClaimsModelConfiguration(id: doc.id, createdAt: doc.createdAt, docType: doc.docType, displayName: displayName, display: docMetadata?.display, issuerDisplay: docMetadata?.issuerDisplay, credentialIssuerIdentifier: credentialIssuerIdentifier, configurationIdentifier: configurationIdentifier, validFrom: validFrom, validUntil: validUntil, statusList: statusList, credentialsUsageCounts: nil, credentialPolicy: docKeyInfo.credentialPolicy, secureAreaName: docKeyInfo.secureAreaName, modifiedAt: doc.modifiedAt, docClaims: docClaims, docDataFormat: .sdjwt, hashingAlg: recreatedClaims.hashingAlg)
 		return DocClaimsModel(configuration: configuration)
 	}
 
@@ -144,5 +145,49 @@ public final class SdJwtUtils {
 	static func extractJWTParts(_ jwt: String) -> (String, String, String) {
 		let parts = jwt.components(separatedBy: ".")
 		return (parts.count > 0 ? parts[0] : "", parts.count > 1 ? parts[1] : "" , parts.count > 2 ? parts[2] : "")
+	}
+
+	static func parseCnfBindingKeys(fromDocumentData documentData: Data) throws -> [ECPublicKey] {
+		guard let serialized = String(data: documentData, encoding: .utf8) else {
+			throw WalletError(description: "Failed to decode SD-JWT credential data", code: .issuanceRequestFailed)
+		}
+		return try parseCnfBindingKeys(fromSerializedCredential: serialized)
+	}
+
+	static func parseCnfBindingKeys(fromSerializedCredential serialized: String) throws -> [ECPublicKey] {
+		let (_, payload, _) = extractJWTParts(serialized)
+		guard let payloadData = Data(base64URLEncoded: payload) else {
+			throw WalletError(description: "Failed to decode SD-JWT payload", code: .issuanceRequestFailed)
+		}
+		let payloadJson = try JSON(data: payloadData)
+		guard payloadJson["cnf"].exists(), payloadJson["cnf"].type == .dictionary else {
+			throw WalletError(description: "Issued SD-JWT is missing a valid cnf claim", code: .issuanceRequestFailed)
+		}
+		return try parseCnfBindingKeys(payloadJson["cnf"])
+	}
+
+	static func parseCnfBindingKeys(_ cnf: JSON) throws -> [ECPublicKey] {
+		var jwks: [JSON] = []
+		if cnf["jwk"].type == .dictionary {
+			jwks.append(cnf["jwk"])
+		} else if cnf["jwk"].type == .array {
+			jwks.append(contentsOf: cnf["jwk"].arrayValue)
+		}
+		if cnf["jwks"]["keys"].type == .array {
+			jwks.append(contentsOf: cnf["jwks"]["keys"].arrayValue)
+		}
+		guard !jwks.isEmpty else {
+			throw WalletError(description: "Issued SD-JWT cnf claim does not contain JWK binding keys", code: .issuanceRequestFailed)
+		}
+		return try jwks.map { jwk in
+			guard let kty = jwk["kty"].string, kty == "EC",
+					let curveName = jwk["crv"].string,
+					let curve = ECCurveType(rawValue: curveName),
+					let x = jwk["x"].string,
+					let y = jwk["y"].string else {
+				throw WalletError(description: "Issued SD-JWT cnf JWK is missing required key material", code: .issuanceRequestFailed)
+			}
+			return ECPublicKey(crv: curve, x: x, y: y)
+		}
 	}
 }
