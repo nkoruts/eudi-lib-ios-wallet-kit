@@ -860,46 +860,51 @@ public actor OpenId4VciService {
 
 	@MainActor
 	private func loginUserAndGetAuthCode(authorizationCodeURL: URL) async throws -> AsWebOutcome {
-		#if os(iOS)
-		if let scene = UIApplication.shared.connectedScenes.first {
-			let activateState = scene.activationState
-			if activateState != .foregroundActive { try await Task.sleep(nanoseconds: 1_000_000_000) }
-		}
-		#endif
-		simpleAuthWebContext = SimpleAuthenticationPresentationContext()
-		let lock = NSLock()
-		return try await withCheckedThrowingContinuation { [redirectUrl = config.authFlowRedirectionURI.scheme!] continuation in
-			var nillableContinuation: CheckedContinuation<AsWebOutcome, Error>? = continuation
-			let authenticationSession = ASWebAuthenticationSession(url: authorizationCodeURL, callbackURLScheme: redirectUrl) { url, error in
-				lock.lock()
-				defer { lock.unlock() }
-				if let error {
-					nillableContinuation?.resume(throwing: WalletError.authRequestFailed(error: error))
-					nillableContinuation = nil
-					return
+		let expectedState = authorizationCodeURL.getQueryStringParameter("state")
+		let logger = self.logger
+		
+		let stream = await DeeplinkBus.shared.subscribe()
+		
+		await UIApplication.shared.open(authorizationCodeURL)
+		
+		let timeoutNs: UInt64 = 120 * 1_000_000_000
+		
+		return try await withThrowingTaskGroup(of: AsWebOutcome.self) { group in
+			group.addTask {
+				for await event in stream {
+					guard case let .url(url) = event else { continue }
+					
+					if let expectedState,
+					   let incomingState = url.getQueryStringParameter("state"),
+					   incomingState != expectedState {
+						logger.info("Ignoring deeplink with mismatched state")
+						continue
+					}
+					
+					if let code = url.getQueryStringParameter("code") {
+						logger.info("Authorization code received")
+						return .code(code, state: url.getQueryStringParameter("state"))
+					} else if let schemes = Bundle.main.getURLSchemas(),
+							  schemes.contains(where: { url.absoluteString.hasPrefix($0 + "://") }) {
+						logger.info("Dynamic issuance url: \(url)")
+						return .presentation_request(url)
+					} else {
+						throw WalletError(description: "Authorization response does not include a code", code: .authorizationFailed)
+					}
 				}
-				guard let url else {
-					nillableContinuation?.resume(throwing: WalletError(description: "Authorization response does not include a url", code: .authorizationFailed))
-					nillableContinuation = nil
-					return
-				}
-				if let schemes = Bundle.main.getURLSchemas(), schemes.first(where: { url.absoluteString.hasPrefix($0 + "://") }) != nil {
-					// dynamic issuing case
-					self.logger.info("Dynamic issuance url: \(url)")
-					nillableContinuation?.resume(returning: .presentation_request(url))
-					nillableContinuation = nil
-				} else if let code = url.getQueryStringParameter("code") {
-					self.logger.info("Authorization code: \(code)")
-					let state = url.getQueryStringParameter("state")
-					nillableContinuation?.resume(returning: .code(code, state: state))
-					nillableContinuation = nil
-				} else {
-					nillableContinuation?.resume(throwing: WalletError(description: "Authorization response does not include a code", code: .authorizationFailed))
-					nillableContinuation = nil
-				}
+				throw CancellationError()
 			}
-			authenticationSession.presentationContextProvider = simpleAuthWebContext
-			authenticationSession.start()
+			
+			group.addTask {
+				try await Task.sleep(nanoseconds: timeoutNs)
+				throw WalletError(description: "Authorization timed out", code: .authorizationFailed)
+			}
+			
+			defer { group.cancelAll() }
+			guard let result = try await group.next() else {
+				throw WalletError(description: "Authorization produced no result", code: .authorizationFailed)
+			}
+			return result
 		}
 	}
 
