@@ -29,9 +29,14 @@ public struct TrustConfiguration: Sendable {
 	/// The trust policy applied to document status token validation.
 	/// Defaults to `.enforce`. Set to `.warning` to allow status checks to succeed even when the status token trust chain cannot be validated.
 	public let statusTrustPolicy: TrustPolicy
-	/// The trust policy applied to WRPRC (Wallet Relying Party Registration Certificate) validation.
+	/// The trust policy applied to WRPRC validation during OpenID4VP and BLE presentation.
 	/// Defaults to `.enforce`. Set to `.warning` to allow presentation to proceed even when the WRPRC trust chain cannot be validated.
-	public let wrprcTrustPolicy: TrustPolicy
+	public let wrprcVpTrustPolicy: TrustPolicy
+	/// The trust policy applied to WRPRC validation during OpenID4VCI issuance.
+	/// Defaults to `.enforce`. Set to `.warning` to allow issuance to proceed even when the WRPRC trust chain cannot be validated.
+	public let wrprcVciTrustPolicy: TrustPolicy
+	/// PID types from the effective issuer trust-area mappings. Empty when no classification is configured.
+	let pidAttestationTypes: Set<String>
 	/// Clock skew for the status token verifier
 	public let clockSkew: TimeInterval
 
@@ -53,14 +58,16 @@ public struct TrustConfiguration: Sendable {
 		docTypePolicies: [String: TrustPolicy] = [:],
 		requireSignedMetadata: Bool = true,
 		statusTrustPolicy: TrustPolicy = .enforce,
-		wrprcTrustPolicy: TrustPolicy = .enforce,
+		wrprcVpTrustPolicy: TrustPolicy = .warning,
+		wrprcVciTrustPolicy: TrustPolicy = .enforce,
 		clockSkew: TimeInterval = 60
 	) {
 		self.defaultPolicy = defaultPolicy
 		self.docTypePolicies = docTypePolicies
 		self.requireSignedMetadata = requireSignedMetadata
 		self.statusTrustPolicy = statusTrustPolicy
-		self.wrprcTrustPolicy = wrprcTrustPolicy
+		self.wrprcVpTrustPolicy = wrprcVpTrustPolicy
+		self.wrprcVciTrustPolicy = wrprcVciTrustPolicy
 		self.clockSkew = clockSkew
 		let issuerSource = trustSource.contextTypeMappings == nil ? trustSource.withContextTypeMappings(.default) : trustSource
 		let fallbackTrustManager: EtsiTrustManager?
@@ -68,6 +75,10 @@ public struct TrustConfiguration: Sendable {
 			let fallbackTrustSource1 = fts.contextTypeMappings == nil ? fts.withContextTypeMappings(.default) : fts
 			fallbackTrustManager = EtsiTrustManager(source: fallbackTrustSource1)
 		} else { fallbackTrustManager = nil }
+		let primaryMappings = issuerSource.contextTypeMappings ?? [:]
+		let fallbackMappings = fallbackTrustSource.map { $0.contextTypeMappings ?? .default } ?? [:]
+		pidAttestationTypes = Set(primaryMappings.keys.filter { primaryMappings[$0] == .pid })
+			.union(fallbackMappings.keys.filter { primaryMappings[$0] == nil && fallbackMappings[$0] == .pid })
 		issuerTrustManager = EtsiTrustManager(source: issuerSource, fallback: fallbackTrustManager)
 		accessTrustManager = EtsiTrustManager(source: trustSource.withContextTypeMappings(nil), defaultVerificationContext: EtsiContextType.wrpac.verificationContext)
 		registrationTrustManager = EtsiTrustManager(source: trustSource.withContextTypeMappings(nil), defaultVerificationContext: EtsiContextType.wrprc.verificationContext)
@@ -94,15 +105,18 @@ public struct TrustConfiguration: Sendable {
 		docTypePolicies: [String: TrustPolicy] = [:],
 		requireSignedMetadata: Bool = true,
 		statusTrustPolicy: TrustPolicy = .enforce,
-		wrprcTrustPolicy: TrustPolicy = .enforce,
+		wrprcVpTrustPolicy: TrustPolicy = .enforce,
+		wrprcVciTrustPolicy: TrustPolicy = .enforce,
 		clockSkew: TimeInterval = 60
 	) {
 		self.defaultPolicy = defaultPolicy
 		self.docTypePolicies = docTypePolicies
 		self.requireSignedMetadata = requireSignedMetadata
 		self.statusTrustPolicy = statusTrustPolicy
-		self.wrprcTrustPolicy = wrprcTrustPolicy
+		self.wrprcVpTrustPolicy = wrprcVpTrustPolicy
+		self.wrprcVciTrustPolicy = wrprcVciTrustPolicy
 		self.clockSkew = clockSkew
+		pidAttestationTypes = []
 		issuerTrustManager = SecTrustSource(rootIaca: rootIaca, usage: .mdocAuth)
 		accessTrustManager = SecTrustSource(rootIaca: rootIaca, usage: .mdocReaderAuth)
 	}

@@ -65,7 +65,7 @@ The library provides the following functionality:
         - [x] DCQL
         - [x] Optional partial claim presentation for DCQL requests
 
-The library is written in Swift and is compatible with iOS 16 or higher. It requires Swift 6.2 or later. It is distributed as a Swift package and can be included in any iOS project.
+The library is written in Swift and is compatible with iOS 17 or higher. It requires Swift 6.2 or later. It is distributed as a Swift package and can be included in any iOS project.
 
 It is based on the following specifications:
 - ISO/IEC 18013-5 – Published
@@ -136,6 +136,8 @@ let wallet = try! EudiWallet(
 
 Set `preferredResponseMode` to override the response mode requested by the verifier. When set to `.directPost`, the authorization response is sent as a plain POST. When set to `.directPostJWT`, the response is sent as an encrypted direct POST JWT. The response URI is always taken from the verifier's request. When `nil` (the default), the library uses the response mode specified by the verifier.
 
+`OpenId4VpConfiguration.errorDispatchPolicy` controls which verifiers may receive protocol-level errors when a request fails validation. The default is `.allClients`, retaining the existing configuration and allowing notifications even when verifier authentication fails. Set `errorDispatchPolicy: .onlyAuthenticatedClients` to restrict notifications to authenticated verifiers. Errors are sent only when the OpenID4VP library supplies dispatch details.
+
 ### Trust configuration
 
 `EudiWallet` requires a `TrustConfiguration` that describes where trust anchors come from and how trust failures are handled. A single `TrustConfiguration` drives certificate-chain validation across the wallet:
@@ -190,8 +192,9 @@ let issuerConfigurations: [String: OpenId4VciConfiguration] = [
     ),
     "mdl_issuer": OpenId4VciConfiguration(
         credentialIssuerURL: "https://mdl.issuer.example.com",
-    requireDpop: false,
-    issuerMetadataPolicy: .ignoreSigned
+        allowPlainJwtProof: true,
+        requireDpop: false,
+        issuerMetadataPolicy: .ignoreSigned
     )
 ]
 
@@ -208,6 +211,8 @@ try wallet.registerOpenId4VciServices([
     "new_issuer": OpenId4VciConfiguration(credentialIssuerURL: "https://new.issuer.com")
 ])
 ```
+
+The `allowPlainJwtProof` property controls which credential proof types the wallet accepts. It defaults to `false`, which uses the HAIP-compliant proof policy and accepts only attested proofs. Set it to `true` only when interoperability with an issuer requires plain JWT proofs without key attestation; the wallet then accepts all supported proof types using ES256, ES384, or ES512.
 
 The `requireDpop` property controls whether issuance should halt when DPoP is not available. The `issuerMetadataPolicy` property controls signed metadata handling per issuer (`.ignoreSigned` or `.requireSigned`). The `dpopKeyOptions` property allows you to specify key generation parameters for DPoP keys, including the secure area, curve type and user authentication options.
 
@@ -446,13 +451,44 @@ let defaultOptions = try await wallet.getDefaultCredentialOptions(
   docTypeIdentifier: .msoMdoc(docType: EuPidModel.euPidDocType)
 )
 ```
+### Resolving Issuer Registration
+
+Use `resolveIssuerRegistration(issuerName:credentialConfigurationIds:)` to check whether an issuer is registered for a given set of credential types **before** starting an issuance flow. This avoids issuing a document only to discover afterwards that the issuer's registration certificate does not cover the requested credential type.
+
+The method returns an `IssuerResponse` with an empty `documents` array, containing the decoded `WrpRegistrationPolicy` and any `RegistrationPolicyViolation` entries.
+
+```swift
+let result = try await wallet.resolveIssuerRegistration(
+    issuerName: "eudi_pid_issuer",
+    credentialConfigurationIds: ["eu.europa.ec.eudi.pid_mdoc"]
+)
+if let policy = result.wrpIssuerPolicy {
+    // Show issuer info: policy.name, policy.country
+}
+if let warnings = result.wrpIssuerWarnings, !warnings.isEmpty {
+    for (configId, violations) in warnings {
+        for violation in violations {
+            switch violation.reason {
+            case .credentialsNotCovered(let ids):
+                // issuer is not registered for credential config ids
+                break
+            case .expired:
+                // registration certificate has expired
+                break
+            default: break
+            }
+        }
+    }
+}
+```
+
 ### Resolving Credential offer
 
 The library provides the `resolveOfferUrlDocTypes(offerUri:authFlowRedirectionURI:)` method that resolves the credential offer URI.
 The method returns the resolved `OfferedIssuanceModel` object that contains the offer's data (offered document types, issuer name and transaction code specification for pre-authorized flow). When registration certificate validation is enabled (`OpenId4VciConfiguration.validateRegistrationCertificate`), the model also includes:
 
 - `wrpVciRegistrationPolicy: WrpRegistrationPolicy?` — the parsed issuer registration policy decoded from the WRPRC.
-- `wrpVciWarnings: [String: [PolicyViolation]]?` — validation warnings keyed by credential configuration identifier; the empty key holds request-wide warnings. `nil` when validation is not enabled.
+- `wrpVciWarnings: [String: [RegistrationPolicyViolation]]?` — validation warnings keyed by credential configuration identifier; the empty key holds request-wide warnings. `nil` when validation is not enabled.
 
 The offer's data can be displayed to the user, including issuer registration information and any warnings, before proceeding to issuance.
 
@@ -649,12 +685,15 @@ Trust for WRPRC validation is configured through `TrustConfiguration`:
 let trustConfig = TrustConfiguration(
     trustSource: .etsi(.eudiRef),
     fallbackTrustSource: nil,
-    wrprcTrustPolicy: .enforce // .enforce (default) or .warning
+    wrprcVpTrustPolicy: .enforce,  // presentation: .enforce (default) or .warning
+    wrprcVciTrustPolicy: .enforce  // issuance: .enforce (default) or .warning
 )
 ```
 
 - `.enforce` — validation failure causes the request to fail.
 - `.warning` — validation failure is added to warnings; the request continues.
+
+`wrprcVpTrustPolicy` controls the behaviour during OpenID4VP and BLE presentation. `wrprcVciTrustPolicy` controls the behaviour during OpenID4VCI issuance.
 
 For OpenID4VP, validation is controlled by `OpenId4VpConfiguration.validateRegistrationCertificate` (enabled by default) and performed by `WrpVpRegistrationValidator`. For BLE proximity requests, the validator is used internally when the request carries a WRPRC.
 
@@ -665,9 +704,9 @@ For OpenID4VCI issuance, set `OpenId4VciConfiguration.validateRegistrationCertif
 After receiving a request, the result is available on `PresentationSession`:
 
 - `wrpVerifierPolicy: WrpRegistrationPolicy?` — the parsed registration (name, country, purpose, registered credentials).
-- `wrpVerifierWarnings: [String: [PolicyViolation]]?` — validation warnings keyed by credential query identifier; the empty key holds request-wide warnings, including over-asked claims.
+- `wrpVerifierWarnings: [String: [PresentationPolicyViolation]]?` — validation warnings keyed by credential query identifier; the empty key holds request-wide warnings, including over-asked claims.
 
-Each `DisclosedDocumentSet` in `disclosedDocumentSets` also carries per-option `warnings` for policy violations specific to that credential combination.
+Each `DisclosedDocumentSet` in `disclosedDocumentSets` also carries per-option `warnings: [PresentationPolicyViolation]?` for policy violations specific to that credential combination.
 
 ```swift
 if let registration = presentationSession.wrpVerifierPolicy {
@@ -684,7 +723,7 @@ The `issueDocuments` and `issueDocumentsByOfferUrl` methods return an `IssuerRes
 
 - `documents: [WalletStorage.Document]` — the issued documents (already saved in storage).
 - `wrpIssuerPolicy: WrpRegistrationPolicy?` — the parsed issuer registration, including the attestations it is registered to provide.
-- `wrpIssuerWarnings: [String: [PolicyViolation]]?` — warnings keyed by credential configuration identifier; the empty key holds request-wide warnings.
+- `wrpIssuerWarnings: [String: [RegistrationPolicyViolation]]?` — warnings keyed by credential configuration identifier; the empty key holds request-wide warnings.
 - `documentWarnings` — computed property matching the warnings to each issued document by its credential configuration identifier.
 
 ```swift

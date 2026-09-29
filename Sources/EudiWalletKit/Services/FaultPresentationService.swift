@@ -18,7 +18,6 @@ import Foundation
 import MdocDataModel18013
 import MdocDataTransfer18013
 import struct WalletStorage.Document
-import struct OpenID4VP.PolicyViolation
 
 /// Fault presentation service. Used to communicate error state to the user
 public final class FaultPresentationService: @unchecked Sendable, PresentationService {
@@ -27,19 +26,20 @@ public final class FaultPresentationService: @unchecked Sendable, PresentationSe
 	public var zkpDocumentIds: [Document.ID]?
 	var error: Error
 	public var wrpVerifierPolicy: WrpRegistrationPolicy?
-	public var wrpVerifierWarnings: [String: [PolicyViolation]]?
-	public var transactionLog: TransactionLog
+	public var wrpVerifierWarnings: [String: [PresentationPolicyViolation]]?
+	public var transactionLogger: (any TransactionLogger)?
+	public var transactionLog: TransactionEntry
 
 	public init(msg: String) {
 		self.error = WalletError(description: msg, code: .internalError)
-		self.transactionLog = TransactionLog(timestamp: Int64(Date.now.timeIntervalSince1970.rounded()), status: .failed, errorMessage: msg, type: .presentation, dataFormat: .cbor)
-		TransactionLogUtils.setErrorTransactionLog(type: .presentation, error: error, transactionLog: &transactionLog)
+		self.transactionLog = TransactionLogUtils.createEmptyPresentationLog()
+		TransactionLogUtils.withResult(.notCompleted, reason: error.localizedDescription, transactionLog: &transactionLog)
 	}
 
 	public init(error: Error) {
 		self.error = error
-		self.transactionLog = TransactionLog(timestamp: Int64(Date.now.timeIntervalSince1970.rounded()), status: .failed, type: .presentation, dataFormat: .cbor)
-		TransactionLogUtils.setErrorTransactionLog(type: .presentation, error: error, transactionLog: &transactionLog)
+		self.transactionLog = TransactionLogUtils.createEmptyPresentationLog()
+		TransactionLogUtils.withResult(.notCompleted, reason: error.localizedDescription, transactionLog: &transactionLog)
 	}
 
 	public func startQrEngagement(secureAreaName: String?, keyOptions: KeyOptions) async throws -> String {
@@ -50,7 +50,7 @@ public final class FaultPresentationService: @unchecked Sendable, PresentationSe
 		throw error
 	}
 
-	public func sendResponse(userAccepted: Bool, itemsToSend: RequestItems, deviceNameSpacesToSend: RequestDeviceNameSpaces? = nil, onSuccess: ((URL?) -> Void)?) async throws{
+	public func sendResponse(userAccepted: Bool, itemsToSend: RequestItems, deviceNameSpacesToSend: RequestDeviceNameSpaces? = nil, authenticationContext: ThreadSafeAuthContext = ThreadSafeAuthContext(), onSuccess: ((URL?) -> Void)?) async throws{
 		throw error
 	}
 

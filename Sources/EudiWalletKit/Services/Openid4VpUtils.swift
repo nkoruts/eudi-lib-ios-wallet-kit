@@ -70,7 +70,7 @@ class OpenId4VpUtils {
 		var zkSpecsRequested: [DocType: [ZkSystemSpec]]?
 		for credQuery in dcql.credentials {
 			let formatRequested: DocDataFormat = credQuery.dataFormat
-			guard let docType = credQuery.docType else { continue }
+			guard let docType = credQuery.docTypeOrVct else { continue }
 			if !idsToDocTypes.values.contains(docType) {logger?.warning("Document type \(docType) not in supported document types \(idsToDocTypes.values)")}
 			inputDescriptorMap[docType] = credQuery.id.value; formatsRequested[docType] = formatRequested
 			if let zkSpecs = credQuery.zkSpecs {
@@ -280,7 +280,7 @@ extension ClaimPathElement {
 }
 
 extension CredentialQuery {
-	public var docType: String? {
+	public var docTypeOrVct: String? {
 		let mdocTypeValue = meta.dictionaryObject?["doctype_value"]
 		let vctValues = meta.dictionaryObject?["vct_values"]
 		let metaDocType = mdocTypeValue ?? vctValues ?? meta.dictionaryObject?.first?.value
@@ -366,7 +366,7 @@ extension OpenId4VpUtils {
 		var credentialQueryResults: OrderedDictionary<QueryId, [CredentialSelection]> = [:]
 		// Step 1: Process individual credential queries
 		for credQuery in dcql.credentials {
-			guard let docType = credQuery.docType else { throw WalletError(description: "Credential query \(credQuery.id.value) does not have a doc type", code: .invalidQueryResolution) }
+			guard let docType = credQuery.docTypeOrVct else { throw WalletError(description: "Credential query \(credQuery.id.value) does not have a doc type", code: .invalidQueryResolution) }
 			let format = credQuery.dataFormat
 			let isMultiple = credQuery.multiple == true
 			// Find matching credentials
@@ -492,7 +492,7 @@ extension OpenId4VpUtils {
 		}
 		if resultDict.isEmpty {
 			let notFoundCred = dcql.credentials.first { c in credentialQueryResults[c.id]?.isEmpty != false }
-			if let notFoundCred {logger.warning("No credential found matching docType: \(notFoundCred.docType ?? "") with format: \(notFoundCred.format)")}
+			if let notFoundCred {logger.warning("No credential found matching docType/vct: \(notFoundCred.docTypeOrVct ?? "") with format: \(notFoundCred.format)")}
 			throw lastError ?? WalletError(description: "DCQL query could not be satisfied", code: .dcqlQueryNotSatisfied)
 		}
 		return resultDict
@@ -504,9 +504,9 @@ extension OpenId4VpUtils {
 	///   - dcql: The DCQL from the authorization request
 	///   - policyDcql: The DCQL declared in the WRPRC (permitted scope)
 	/// - Returns: Warnings for each extra claim path found in the request but not in the policy
-	static func validateDcqlPolicy(credentialSetOptions: CredentialSelectionSetOptions, policy: WrpRegistrationPolicy, wrpVpWarnings: inout [String: [PolicyViolation]]) {
+	static func validateDcqlPolicy(credentialSetOptions: CredentialSelectionSetOptions, policy: WrpRegistrationPolicy, wrpVpWarnings: inout [String: [PresentationPolicyViolation]]) {
 		for (key, selectionSet) in credentialSetOptions {
-			var violations = [PolicyViolation]()
+			var violations = [PresentationPolicyViolation]()
 			for selection in selectionSet {
 				// Find matching policy credential by doctype or vct
 				let policyCredential = policy.credentials?.first { policyCred in
@@ -519,22 +519,24 @@ extension OpenId4VpUtils {
 					return false
 				}
 				guard let policyCredential else {
-					violations.append(.init("Credential '\(selection.docType)' (query: \(selection.queryId)) is not declared in the registration certificate policy"
-					))
+					let messageViolation = "Credential '\(selection.docType)' (query: \(selection.queryId)) is not declared in the registration certificate policy"
+					violations.append(PresentationPolicyViolation(reason: .overAskedClaims(docType: selection.docType, claims: nil), message: messageViolation))
 					continue
 				}
 				// Compare claims: find claims in request that are not covered by policy
 				let requestClaims = selection.claimQueries
 				guard !requestClaims.isEmpty else { continue }
 				guard let pclaims = policyCredential.claims  else { continue }
-				let policyPaths: Set<ClaimPath> = Set(pclaims.map(\.path))
+				let policyPaths: Set<ClaimPath> = Set(pclaims.map { policyClaim -> ClaimPath in
+					policyClaim.path.openID4VPClaimPath
+				})
 				let extraClaims = requestClaims.filter { requestClaim in
 					let claimPath = requestClaim.path
 					return !policyPaths.contains(where: { policyPath in policyPath.contains2(claimPath) })
 				}
 				if !extraClaims.isEmpty {
-					let extraPaths = extraClaims.map { $0.path.value.map(\.description).joined(separator: "/") }.joined(separator: ", ")
-					violations.append(.init("Credential '\(selection.docType)' requests claims beyond policy scope. Extra fields: [\(extraPaths)]"))
+					let extraPaths = extraClaims.map(\.path)
+					violations.append(PresentationPolicyViolation(reason: .overAskedClaims(docType: selection.docType, claims: extraPaths), message: "Credential '\(selection.docType)' requests claims beyond policy scope. Extra fields: [\(extraPaths.map { $0.value.map(\.description).joined(separator: "/") }.joined(separator: ", "))]"))
 				}
 			}
 			if !violations.isEmpty { wrpVpWarnings[key] = violations }
