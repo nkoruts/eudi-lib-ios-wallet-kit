@@ -666,7 +666,7 @@ extension EudiWallet {
 	private static func hasRepeatedOfferParameter(_ offerUri: String) -> Bool {
 		guard let queryItems = offerQueryItems(from: offerUri) else { return false }
 		return ["credential_offer", "credential_offer_uri"].contains { name in
-			queryItems.filter { $0.name == name }.count > 1
+			queryItems.count { $0.name == name } > 1
 		}
 	}
 
