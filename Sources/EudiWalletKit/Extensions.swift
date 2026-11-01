@@ -635,19 +635,45 @@ extension EudiWallet {
 	}
 
 	/// Extract credential issuer URL from an OpenID4VCI offer URL.
+	///
+	/// Returns nil if the URI repeats `credential_offer` or `credential_offer_uri`, because the issuer
+	/// must come from the same offer the library resolves (OID4VCI §4.1, OID4VCI §13.5).
 	public static func extractCredentialIssuerURL(from offerUri: String) -> String? {
-		guard let components = URLComponents(string: offerUri) else { return nil }
-		guard let encodedOffer = components.queryItems?.first(where: { $0.name == "credential_offer" })?.value else {
+		guard !hasRepeatedOfferParameter(offerUri), let queryItems = offerQueryItems(from: offerUri) else { return nil }
+		guard let offerJson = queryItems.first(where: { $0.name == "credential_offer" })?.value else {
 			return nil
 		}
-		let decodedOffer = encodedOffer.removingPercentEncoding ?? encodedOffer
-		guard let offerData = decodedOffer.data(using: .utf8),
+		// `URLQueryItem.value` is already percent-decoded. Decoding it again would parse a different
+		// JSON document from the one the library resolves.
+		guard let offerData = offerJson.data(using: .utf8),
 			  let payload = try? JSONSerialization.jsonObject(with: offerData) as? [String: Any],
 			  let credentialIssuer = payload["credential_issuer"] as? String,
 			  !credentialIssuer.isEmpty else {
 			return nil
 		}
 		return credentialIssuer
+	}
+
+	/// Reject an offer URI that repeats `credential_offer` or `credential_offer_uri` (OID4VCI §4.1).
+	/// The kit and the library could otherwise read different values, applying one issuer's metadata
+	/// policy to another issuer (OID4VCI §13.5).
+	static func rejectRepeatedOfferParameters(_ offerUri: String) throws {
+		if hasRepeatedOfferParameter(offerUri) {
+			throw WalletError(description: "Credential offer must not repeat the credential_offer or credential_offer_uri parameter", code: .offerResolutionFailed)
+		}
+	}
+
+	private static func hasRepeatedOfferParameter(_ offerUri: String) -> Bool {
+		guard let queryItems = offerQueryItems(from: offerUri) else { return false }
+		return ["credential_offer", "credential_offer_uri"].contains { name in
+			queryItems.filter { $0.name == name }.count > 1
+		}
+	}
+
+	/// Query items of the offer URI, parsed the way the library's `CredentialOfferRequest(urlString:)` parses it.
+	private static func offerQueryItems(from offerUri: String) -> [URLQueryItem]? {
+		let url = URL(string: offerUri) ?? offerUri.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed).flatMap { URL(string: $0) }
+		return url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }?.queryItems
 	}
 }
 

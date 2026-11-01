@@ -5,7 +5,16 @@ import Testing
 
 @Suite(.serialized)
 struct AuthorizationServerMetadataCacheTests {
+    // The lock keeps resolveOfferUrlDocTypes tests in other suites from clearing the shared cache mid-test.
     @Test func reusesMetadataPerServerUntilIssuerCacheIsCleared() async throws {
+        try await MetadataCacheTestLock.shared.withLock { try await reusesMetadataPerServer() }
+    }
+
+    @Test func failedResolutionIsRetried() async throws {
+        try await MetadataCacheTestLock.shared.withLock { try await retriesFailedResolution() }
+    }
+
+    @Sendable private func reusesMetadataPerServer() async throws {
         OpenId4VciService.clearIssuerAndAuthorizationMetadataCache()
         defer { OpenId4VciService.clearIssuerAndAuthorizationMetadataCache() }
         let networking = AuthorizationMetadataNetworking()
@@ -28,7 +37,7 @@ struct AuthorizationServerMetadataCacheTests {
         #expect(await networking.requestCount == 3)
     }
 
-    @Test func failedResolutionIsRetried() async throws {
+    @Sendable private func retriesFailedResolution() async throws {
         OpenId4VciService.clearIssuerAndAuthorizationMetadataCache()
         defer { OpenId4VciService.clearIssuerAndAuthorizationMetadataCache() }
         let networking = AuthorizationMetadataNetworking(failRequests: true)

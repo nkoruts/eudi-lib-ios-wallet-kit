@@ -429,6 +429,7 @@ public final class EudiWallet: ObservableObject, @unchecked Sendable {
 	///   - uriOffer: url with offer
 	/// - Returns: Offered issue information model
 	public func resolveOfferUrlDocTypes(offerUri: String, authFlowRedirectionURI: URL?) async throws -> OfferedIssuanceModel {
+		try Self.rejectRepeatedOfferParameters(offerUri)
 		OpenId4VciService.clearIssuerAndAuthorizationMetadataCache()
 		localAuthenticationContext = ThreadSafeAuthContext()
 		let vciServiceFromOfferUri = await resolveVCIServiceFromOfferUri(offerUri)
@@ -452,6 +453,7 @@ public final class EudiWallet: ObservableObject, @unchecked Sendable {
 	///  - configuration: Optional OpenId4VciConfiguration to override the default one for this issuance
 	/// - Returns: An ``IssuerResponse`` with the issued documents (saved in storage), the decoded issuer registration policy and any WRP registration certificate warnings.
 	public func issueDocumentsByOfferUrl(offerUri: String, docTypes: [OfferedDocModel], txCodeValue: String? = nil, promptMessage: String? = nil, configuration: OpenId4VciConfiguration? = nil) async throws -> IssuerResponse {
+		try Self.rejectRepeatedOfferParameters(offerUri)
 		let issuerMetadataPolicy = configuration?.issuerMetadataPolicy ?? trustConfig.issuerMetadataPolicy
 		let offer = try await resolveCredentialOffer(offerUri: offerUri, policy: issuerMetadataPolicy)
 		let urlString = offer.credentialIssuerIdentifier.url.absoluteString
