@@ -60,12 +60,17 @@ public struct OpenId4VciConfiguration: Sendable {
 	public let userAuthenticationRequired: Bool
 	/// Key options for generating DPoP keys, if DPoP is used
 	public let dpopKeyOptions: KeyOptions?
+	/// Sign DPoP proofs with the client-attestation proof-of-possession key instead of a
+	/// separate per-issuer DPoP key, for authorization servers that bind the sender-constrained
+	/// access token to the wallet instance attestation's `cnf` key. Only applies when the client
+	/// is attested (``keyAttestationsConfig`` set and the server advertises attestation algorithms).
+	public let dpopUsesClientAttestationKey: Bool
 	/// Builder used to create client-attestation proofs of possession.
 	public let clientAttestationPoPBuilder: (any ClientAttestationPoPBuilder)
 	/// Wallet-side configuration of credential request / response encryption.
 	public let encryptionSupportConfig: EncryptionSupportConfig
-    /// Controls how the authorization UI is presented when obtaining an authorization code.
-    public let authFlowMode: AuthFlowMode
+	/// Presents the authorization URL to the user during the authorization code flow and returns the redirect.
+	public let authorizationFlowHandler: (any AuthorizationFlowHandler)
 
 	public init(
 		credentialIssuerURL: String?,
@@ -80,10 +85,11 @@ public struct OpenId4VciConfiguration: Sendable {
 		validateRegistrationCertificate: Bool = false,
 		userAuthenticationRequired: Bool = false,
 		dpopKeyOptions: KeyOptions? = nil,
+		dpopUsesClientAttestationKey: Bool = false,
 		trustedIssuerCertificates: [x5chain]? = nil,
-        clientAttestationPoPBuilder: any ClientAttestationPoPBuilder = DefaultClientAttestationPoPBuilder(),
-        encryptionSupportConfig: EncryptionSupportConfig = .init(),
-		authFlowMode: AuthFlowMode = .webAuthSession
+		clientAttestationPoPBuilder: any ClientAttestationPoPBuilder = DefaultClientAttestationPoPBuilder(),
+		encryptionSupportConfig: EncryptionSupportConfig = .init(),
+		authorizationFlowHandler: (any AuthorizationFlowHandler)? = nil
 	) {
 		self.credentialIssuerURL = credentialIssuerURL
 		self.clientId = clientId
@@ -97,9 +103,10 @@ public struct OpenId4VciConfiguration: Sendable {
 		self.validateRegistrationCertificate = validateRegistrationCertificate
 		self.userAuthenticationRequired = userAuthenticationRequired
 		self.dpopKeyOptions = dpopKeyOptions
-        self.clientAttestationPoPBuilder = clientAttestationPoPBuilder
-        self.encryptionSupportConfig = encryptionSupportConfig
-		self.authFlowMode = authFlowMode
+		self.dpopUsesClientAttestationKey = dpopUsesClientAttestationKey
+		self.clientAttestationPoPBuilder = clientAttestationPoPBuilder
+		self.encryptionSupportConfig = encryptionSupportConfig
+		self.authorizationFlowHandler = authorizationFlowHandler ?? ASWebAuthenticationSessionFlowHandler()
 	}
 }
 
@@ -254,6 +261,25 @@ extension OpenId4VciConfiguration {
 	///
 	/// - Parameter credentialIssuerId: The credential issuer identifier to hash
 	/// - Returns: A deterministic, stable key alias for the given issuer
+	/// The key DPoP proofs are signed with: the client-attestation proof-of-possession key when
+	/// ``dpopUsesClientAttestationKey`` is set and the client is attested, the per-issuer DPoP
+	/// key otherwise.
+	func dpopKey(credentialIssuerId: String, clientAttestationAlgorithms: [JWSAlgorithm]?) -> (id: String, keyOptions: KeyOptions?) {
+		if dpopUsesClientAttestationKey, let keyAttestationsConfig, clientAttestationAlgorithms != nil {
+			return (Self.generatePopKeyId(popUsage: .clientAttestation, credentialIssuerId: credentialIssuerId), keyAttestationsConfig.popKeyOptions)
+		}
+		return (Self.generatePopKeyId(popUsage: .dpop, credentialIssuerId: credentialIssuerId), dpopKeyOptions)
+	}
+
+	/// A missing or unknown stored key id selects the per-issuer DPoP key.
+	func deferredDpopKey(storedKeyId: String?, credentialIssuerId: String) -> (id: String, keyOptions: KeyOptions?) {
+		let attestationKeyId = Self.generatePopKeyId(popUsage: .clientAttestation, credentialIssuerId: credentialIssuerId)
+		if storedKeyId == attestationKeyId, let keyAttestationsConfig {
+			return (attestationKeyId, keyAttestationsConfig.popKeyOptions)
+		}
+		return (Self.generatePopKeyId(popUsage: .dpop, credentialIssuerId: credentialIssuerId), dpopKeyOptions)
+	}
+
 	static func generatePopKeyId(popUsage: PopUsage, credentialIssuerId: String) -> String {
 		// Create a hash of the issuer ID to get a stable, URL-safe identifier
 		let data = Data(credentialIssuerId.utf8)

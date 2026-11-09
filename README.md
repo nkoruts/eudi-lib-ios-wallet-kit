@@ -588,6 +588,10 @@ When using `.requireSigned`, the issuer's metadata signature must validate again
 For the authorization code flow to work, the redirect URI must be specified specified by setting the the `openID4VciRedirectUri` property.
 The user is redirected in an authorization web view to the issuer's authorization endpoint. After the user authenticates and authorizes the request, the issuer redirects the user back to the application with an authorization code. The library exchanges the authorization code for an access token and issues the document.
 
+#### Client-driven web authorization
+
+By default the library presents the authorization flow in an `ASWebAuthenticationSession`. An application can take over this step by providing its own ``AuthorizationFlowHandler`` in the ``OpenId4VciConfiguration/authorizationFlowHandler`` property. The handler receives the authorization URL and the configured redirect URI, presents the authorization flow however it wants (external browser, `SFSafariViewController`, or in any other custom way) and returns the full redirect URL once the authorization server redirects back. The redirect URL may alternatively contain a presentation request in case of [Dynamic issuance](#dynamic-issuance).
+
 ### Pre-Authorization code flow
 
 When Issuer supports the pre-authorization code flow, the resolved offer will also contain the corresponding
@@ -785,6 +789,24 @@ Detailed documentation is provided in the DocC documentation [here](https://eu-d
 
 ### Reference application  
 A reference application that demonstrates the usage of this library is [App Wallet UI](https://github.com/eu-digital-identity-wallet/eudi-app-ios-wallet-ui).
+
+## DCQL value matching
+
+Expected and credential claim values retain their JSON types using
+`OpenID4VP.DCQLClaimValue`. A request for boolean `true` matches boolean `true`,
+not string `"true"` or integer `1`. Mdoc scalar values are converted from CBOR;
+SD-JWT values are read from recreated claims at the requested claim path,
+including indexed and wildcard array paths.
+
+`DcqlQueryable.hasClaimWithValue` and `DefaultDcqlQueryable` claim-value maps now
+use `[DCQLClaimValue]`. Custom queryable implementations must preserve types.
+Existing `[String]` value arrays can be converted with
+`strings.map(DCQLClaimValue.string)`.
+
+The review dependency in `Package.swift` pins the SDK correction proposed in
+[OpenID4VP PR #257](https://github.com/eu-digital-identity-wallet/eudi-lib-ios-openid4vp-swift/pull/257).
+Replace it with an official SDK release containing that correction before
+merging or releasing this companion change.
 
 ## How to contribute
 

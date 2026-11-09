@@ -65,9 +65,19 @@ public actor WrpVpRegistrationValidator {
 		wrpVpWarnings = [:]
 	}
 
+	/// The outcome for a request that has no WRPRC. The warning policy adds a warning. The enforce policy rejects the request.
+	public func missingCertificate() async -> Authorization {
+		resetValidations()
+		let message = "verifier_info has no WRPRC"
+		wrpVpWarnings["", default: []].append(PresentationPolicyViolation(reason: .wrprcMissing, message: message))
+		return trustConfig.wrprcVpTrustPolicy == .enforce ?
+			.notGranted(error: .init(message)) :
+			.granted(warnings: ["": [.init(message)]])
+	}
+
 	public func validateCertificate(wrpac: Certificate, wrprc: String, dcql: DCQL) async -> Authorization {
 		resetValidations()
-		guard let wrprcData = wrprc.data(using: .ascii) else {
+		guard let wrprcData = SerializedRegistrationCertificate.decode(wrprc) else {
 			wrpVpWarnings["", default: []].append(PresentationPolicyViolation(reason: .invalidCertificate, message: "WRPRC cannot be decoded"))
 			let policyViolationWarnings = wrpVpWarnings.mapValues { $0.map { PolicyViolation($0.message) } }
 			return trustConfig.wrprcVpTrustPolicy == .enforce ?

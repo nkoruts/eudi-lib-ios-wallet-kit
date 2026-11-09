@@ -180,11 +180,14 @@ public final class OpenId4VpService: @unchecked Sendable, PresentationService {
 
 	private func resolveRequest() async throws -> [UserRequestInfo] {
 		guard status != .error, let openid4VPURI = URL(string: openid4VPlink) else { throw WalletError(description: "Invalid link \(openid4VPlink)", code: .invalidQueryResolution) }
+		if openID4VpConfig.jarSigningAlgorithms?.isEmpty == true {
+			throw WalletError(description: "jarSigningAlgorithms must not be empty", code: .unsupportedAlgorithm)
+		}
 		let dcqlQ = decodeDocuments()
 		await wrpRegistrationValidator.resetValidations()
 		await wrpRegistrationValidator.set(dcqlQueryable: dcqlQ)
 		openId4Vp = OpenID4VP(walletConfiguration: getWalletConf(), authorizatinRequestResolver: WalletAuthorizationRequestResolver())
-		switch await openId4Vp.authorize(fetcher: Fetcher<String>(session: networking), poster: Poster(session: networking), url: openid4VPURI)  {
+		switch await openId4Vp.authorize(fetcher: Fetcher<String>(session: networking), poster: Poster(session: networking), url: openid4VPURI) {
 		case let .notSecured(data: rrd, warnings):
 			self.wrpVerifierWarnings = await wrpRegistrationValidator.wrpVpWarnings
 			if !warnings.isEmpty { logger.warning("Policy warnings: \(warnings.mapValues{$0.map(\.violation)})") }
@@ -214,12 +217,15 @@ public final class OpenId4VpService: @unchecked Sendable, PresentationService {
 					validatedCertificate == certificate else {
 					let message = "Required reader certificate authentication was not established"
 					readerCertificateValidationMessage = message
+					// tells the verifier it is not trusted
+					await dispatchRequestError(ValidationError.untrustedCertificateChain(message), resolved: rrd)
 					throw WalletError(description: message, code: .trustError)
 				}
 			case .preRegistered: isX509 = false // The selected registered key has verified the JAR.
 			default: throw WalletError(description: "Unsupported authenticated client", code: .notSecuredRequest)
 			}
-			let requests = try await handleRequestData(rrd)
+			// Add reporting of query and transaction data failures to the verifier
+			let requests = try await handleRequest(rrd)
 			readerAuthenticationStatus = isX509 && !readerAuthValidated ? .authenticatedWithUntrustedCertificate : .authenticated
 			return requests
 		}
@@ -258,7 +264,8 @@ public final class OpenId4VpService: @unchecked Sendable, PresentationService {
 		self.resolvedRequestData = rrd
 		let vp = rrd.request
 		var jwkThumbprint: Data?  = nil
-		if let key = vp.clientMetaData?.jwkSet?.keys.first(where: { $0.use == "enc"}),
+		// The key that encrypts the response. OpenID4VP 1.0 does not require `use` on it.
+		if let key = vp.responseEncryptionSpecification?.clientKey.keys.first,
 			let x = key.x, let xd = Data(base64URLEncoded: x), let y = key.y, let yd = Data(base64URLEncoded: y),
 			let crv = key.crv, let crvType = MdocDataModel18013.CoseEcCurve(crvName: crv), let ecCrvType = ECCurveType(rawValue: crv) {
 			eReaderPub = CoseKey(x: [UInt8](xd), y: [UInt8](yd), crv: crvType)
@@ -415,7 +422,7 @@ public final class OpenId4VpService: @unchecked Sendable, PresentationService {
 			formatsRequested: formatsRequested
 		)
 		var claimPaths = [Document.ID: [ClaimPath]]()
-		var claimValues = [Document.ID: [ClaimPath: [String]]]()
+		var claimValues = [Document.ID: [ClaimPath: [DCQLClaimValue]]]()
 		OpenId4VpUtils.makeCborClaimData(from: docsCbor, claimPaths: &claimPaths, claimValues: &claimValues)
 		OpenId4VpUtils.makeSdJwtClaimData(from: docsSdJwt, claimPaths: &claimPaths, claimValues: &claimValues)
 		let defaultDcqlQueryable = DefaultDcqlQueryable(credentials: credentialMap, claimPaths: claimPaths, claimValues: claimValues)
@@ -617,7 +624,9 @@ public final class OpenId4VpService: @unchecked Sendable, PresentationService {
 			publicWebKeySet: keySet,
 			supportedClientIdSchemes: supportedClientIdPrefixes,
 			vpFormatsSupported: [],
-			jarConfiguration: .encryptionOption,
+			// Request Object encryption is the Verifier's choice (OpenID4VP 1.0): the wallet
+			// advertises its key and decrypts an encrypted Request Object, and accepts a signed-only one.
+			jarConfiguration: .encryptionSupportedOption,
 			vpConfiguration: try! .init(vpFormatsSupported: .default(), supportedTransactionDataTypes: openID4VpConfig.supportedTransactionDataTypes),
 			errorDispatchPolicy: openID4VpConfig.errorDispatchPolicy,
 			session: networking,
@@ -625,6 +634,16 @@ public final class OpenId4VpService: @unchecked Sendable, PresentationService {
 			registrationCertificatePolicy: openID4VpConfig.validateRegistrationCertificate ? .default(validator: wrpRegistrationValidator) : nil
 		)
 		return res
+	}
+
+	/// JAR configuration from the wallet settings: encryption requirement and accepted signing algorithms.
+	func makeJarConfiguration() -> JARConfiguration {
+		let preset: JARConfiguration = openID4VpConfig.requiresJarEncryption ? .encryptionOption : .noEncryptionOption
+		guard let algorithms = openID4VpConfig.jarSigningAlgorithms, !algorithms.isEmpty else { return preset }
+		return JARConfiguration(
+			supportedAlgorithms: algorithms,
+			supportedRequestUriMethods: preset.supportedRequestUriMethods
+		)
 	}
 
 	/// Builds an `AuthorizationResponse` applying the wallet's preferred response mode if configured.
