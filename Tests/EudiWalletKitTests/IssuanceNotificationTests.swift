@@ -44,7 +44,7 @@ struct IssuanceNotificationTests {
 			requireDpop: true
 		)
 		#if canImport(EudiEtsi1196x2)
-		let trustConfig = TrustConfiguration(trustSource: .etsi(.eudiRef), defaultPolicy: .warning)
+		let trustConfig = TrustConfiguration(trustSource: ReferenceTrustTestFixtures.trustSource, defaultPolicy: .warning)
 		#else
 		let trustConfig = TrustConfiguration(rootIaca: [], defaultPolicy: .warning)
 		#endif
@@ -91,6 +91,7 @@ struct IssuanceNotificationTests {
 			vct: "urn:eu:europa:ec:eudi:pid:1",
 			supportsAttestationProofType: true,
 			supportsJwtProofTypeWithAttestation: true,
+			supportsPlainJwtProof: false,
 			credentialSigningAlgValuesSupported: ["ES256"],
 			dpopSigningAlgValuesSupported: nil,
 			clientAttestationPopSigningAlgValuesSupported: nil,
@@ -288,7 +289,7 @@ actor SpyIssuer: IssuerType {
 	}
 
 	func setDeferredResponseEncryptionSpec(_ spec: IssuanceResponseEncryptionSpec?) async {}
-	func prepareAuthorizationRequest(credentialOffer: CredentialOffer) async throws -> AuthorizationRequested { fatalError("stub") }
+	func prepareAuthorizationRequest(credentialOffer: CredentialOffer, additionalAuthorizationParameters: [String: String]?) async throws -> AuthorizationRequested { fatalError("stub") }
 	func authorizeWithPreAuthorizationCode(credentialOffer: CredentialOffer, authorizationCode: IssuanceAuthorization, client: Client, transactionCode: String?, authorizationDetailsInTokenRequest: AuthorizationDetailsInTokenRequest) async throws -> AuthorizedRequest { fatalError("stub") }
 	func authorizeWithAuthorizationCode(serverState: String, request: AuthorizationRequested, authorizationCode: AuthorizationCode, authorizationDetailsInTokenRequest: AuthorizationDetailsInTokenRequest, grant: Grants, issuerFromRedirect: URL?) async throws -> AuthorizedRequest { fatalError("stub") }
 	func requestCredential(request: AuthorizedRequest, bindingKeys: [BindingKey], requestPayload: IssuanceRequestPayload, responseEncryptionSpecProvider: @Sendable (CredentialResponseEncryption) -> IssuanceResponseEncryptionSpec?) async throws -> SubmittedRequest { fatalError("stub") }

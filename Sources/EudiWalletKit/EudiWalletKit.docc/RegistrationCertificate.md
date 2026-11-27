@@ -55,11 +55,13 @@ let vciConfig = OpenId4VciConfiguration(
 The ``TrustConfiguration`` supplies the trust material for WRPRC validation:
 
 - **``TrustConfiguration/registrationTrustManager``** — validates the certificate's signer chain (the registration-certificate provider's e-seal). Derived from the trust source with the WRPRC verification context.
-- **Status-list trust** — validates the status-list token used for the revocation check, also resolved through the trust configuration.
+- **Status-list trust** — validates the status-list token using the WRPRC status context, independently of the WRPAC access-certificate context. Both issuance and presentation select this context automatically.
+
+Supply the DER-encoded LoTE signer or issuing CA certificates as `loteSignerTrustAnchors` (`[Data]`). For the EUDI reference environment, use the `pidissuerca02_eu.der` development CA.
 
 ```swift
 let trustConfig = TrustConfiguration(
-    trustSource: .etsi(.eudiRef),
+    trustSource: .etsi(.eudiRef(loteSignerTrustAnchors: loteSignerTrustAnchors)),
     fallbackTrustSource: nil,
     wrprcVpTrustPolicy: .enforce,  // presentation: .enforce (default) or .warning
     wrprcVciTrustPolicy: .enforce  // issuance: .enforce (default) or .warning

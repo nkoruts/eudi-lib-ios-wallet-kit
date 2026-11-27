@@ -175,11 +175,20 @@ class OpenId4VpUtils {
 				  let allPathsDict = recreated.disclosuresPerClaimPath else { continue }
 			paths.removeAll(); values.removeAll()
 			for (p, _) in allPathsDict {
-				let mappedElements = p.value.map { element in
-					if case .claim(let name) = element { return ClaimPathElement.claim(name: name) }
-					if case .arrayElement(let index) = element { return ClaimPathElement.arrayElement(index: index) }
+				var node = recreated.recreatedClaims
+				let mappedElements = p.value.compactMap { element -> ClaimPathElement? in
+					if case .claim(let name) = element { node = node[name]; return ClaimPathElement.claim(name: name) }
+					// sd-jwt parses numeric object keys (e.g. age_equal_or_over/16) as array indices
+					if case .arrayElement(let index) = element, node.type == .dictionary {
+						let key = String(index)
+						guard let value = node.dictionary?[key] else { return nil }
+						node = value
+						return ClaimPathElement.claim(name: key)
+					}
+					if case .arrayElement(let index) = element { node = node[index]; return ClaimPathElement.arrayElement(index: index) }
 					return ClaimPathElement.allArrayElements
 				}
+				guard mappedElements.count == p.value.count else { continue }
 				let path = ClaimPath(mappedElements)
 				paths.append(path)
 				values[path] = DcqlClaimValueConversion.fromJson(recreated.recreatedClaims, at: path)
@@ -285,7 +294,8 @@ extension CredentialQuery {
 }
 
 extension ClaimPath {
-	public func contains2(_ that: ClaimPath) -> Bool { zip(self.value, that.value).allSatisfy { (selfElement, thatElement) in selfElement.contains(thatElement) } }
+	/// True when `that` is this path or a path below it. A longer path never contains a shorter path.
+	public func contains2(_ that: ClaimPath) -> Bool { self.value.count <= that.value.count && zip(self.value, that.value).allSatisfy { (selfElement, thatElement) in selfElement.contains(thatElement) } }
 }
 
 extension DCQL {
@@ -416,9 +426,8 @@ extension OpenId4VpUtils {
 			if requiredSetsOptions.contains(where: \.isEmpty) {
 				throw WalletError(description: "Required credential_set cannot be satisfied", code: .credentialSetNotSatisfied)
 			}
-			// Cartesian product across all required sets
-			let requiredCombinations = requiredSetsOptions.reduce([(String, CredentialSelectionSet)]()) { acc, setOptions in
-				if acc.isEmpty { return setOptions }
+			// Seed with one empty combination so optional-only sets can expand.
+			let requiredCombinations = requiredSetsOptions.reduce([("", CredentialSelectionSet())]) { acc, setOptions in
 				return acc.flatMap { (existingKey, existingSet) in
 					setOptions.map { (optKey, optSet) in
 						let combinedKey = existingKey.isEmpty ? optKey : "\(existingKey)|\(optKey)"
@@ -442,7 +451,8 @@ extension OpenId4VpUtils {
 					}
 				}
 			}
-			for (key, set) in combinations {
+			// Presentation requires at least one credential; omit the skip-all variant.
+			for (key, set) in combinations where !set.isEmpty {
 				resultDict[key] = set
 			}
 		} else {
@@ -484,11 +494,10 @@ extension OpenId4VpUtils {
 	
 	/// Validates that the request DCQL does not exceed the scope declared in the policy DCQL.
 	/// Issues warnings for any extra claims requested beyond what the policy permits.
-	/// - Parameters:
-	///   - dcql: The DCQL from the authorization request
-	///   - policyDcql: The DCQL declared in the WRPRC (permitted scope)
-	/// - Returns: Warnings for each extra claim path found in the request but not in the policy
-	static func validateDcqlPolicy(credentialSetOptions: CredentialSelectionSetOptions, policy: WrpRegistrationPolicy, wrpVpWarnings: inout [String: [PresentationPolicyViolation]]) {
+	static func validateDcqlPolicy(
+		credentialSetOptions: CredentialSelectionSetOptions, policy: WrpRegistrationPolicy,
+		sdJwtDocuments: [Document.ID: String] = [:], wrpVpWarnings: inout [String: [PresentationPolicyViolation]]
+	) {
 		for (key, selectionSet) in credentialSetOptions {
 			var violations = [PresentationPolicyViolation]()
 			for selection in selectionSet {
@@ -514,17 +523,33 @@ extension OpenId4VpUtils {
 				let policyPaths: Set<ClaimPath> = Set(pclaims.map { policyClaim -> ClaimPath in
 					policyClaim.path.openID4VPClaimPath
 				})
-				let extraClaims = requestClaims.filter { requestClaim in
-					let claimPath = requestClaim.path
-					return !policyPaths.contains(where: { policyPath in policyPath.contains2(claimPath) })
+				let isCovered: (ClaimPath) -> Bool = { path in policyPaths.contains { $0.contains2(path) } }
+				var extraPaths = requestClaims.map(\.path).filter { !isCovered($0) }
+				if !extraPaths.isEmpty, let document = sdJwtDocuments[selection.credentialId],
+				   let projectedPaths = projectedSdJwtPaths(document, requestClaims: requestClaims) {
+					// A parent may only provide the structure for registered descendants.
+					// Check what it actually reveals, including children embedded in its disclosure.
+					extraPaths.removeAll { requested in
+						let exposed = projectedPaths.filter { requested.contains2($0.key) }
+						guard exposed.keys.contains(where: { $0.value.count == requested.value.count }) else { return false }
+						return exposed.allSatisfy { path, isContainer in
+							isCovered(path) || (isContainer && policyPaths.contains { path.contains2($0) })
+						}
+					}
 				}
-				if !extraClaims.isEmpty {
-					let extraPaths = extraClaims.map(\.path)
+				if !extraPaths.isEmpty {
 					violations.append(PresentationPolicyViolation(reason: .overAskedClaims(docType: selection.docType, claims: extraPaths), message: "Credential '\(selection.docType)' requests claims beyond policy scope. Extra fields: [\(extraPaths.map { $0.value.map(\.description).joined(separator: "/") }.joined(separator: ", "))]"))
 				}
 			}
 			if !violations.isEmpty { wrpVpWarnings[key] = violations }
 		}
+	}
+
+	private static func projectedSdJwtPaths(_ document: String, requestClaims: [ClaimsQuery]) -> [ClaimPath: Bool]? {
+		let query = Set(requestClaims.compactMap { parseClaim($0, .sdjwt)?.1.claimPath })
+		guard let token = try? CompactParser().getSignedSdJwt(serialisedString: document),
+			  let presented = try? token.present(query: query) else { return nil }
+		return SdJwtUtils.presentedClaimPaths(presented)
 	}
 
 	/// Resolves claims for a specific credential query and credential

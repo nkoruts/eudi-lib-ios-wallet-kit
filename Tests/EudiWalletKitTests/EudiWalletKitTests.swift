@@ -42,8 +42,8 @@ struct EudiWalletKitTests {
         let secondConfig = EudiWalletConfiguration(serviceName: "wallet-logging-test-2-\(UUID().uuidString)")
 
         #if canImport(EudiEtsi1196x2)
-        let trustConfig1 = TrustConfiguration(trustSource: .etsi(.eudiRef))
-        let trustConfig2 = TrustConfiguration(trustSource: .etsi(.eudiRef))
+        let trustConfig1 = TrustConfiguration(trustSource: ReferenceTrustTestFixtures.trustSource)
+        let trustConfig2 = TrustConfiguration(trustSource: ReferenceTrustTestFixtures.trustSource)
         #else
         let trustConfig1 = TrustConfiguration(rootIaca: [])
         let trustConfig2 = TrustConfiguration(rootIaca: [])
@@ -340,40 +340,28 @@ struct EudiWalletKitTests {
 		}
 	}
 
-	@Test("Sex field displays male/female for both number and string JSON types")
-	func testSexFieldConversion() throws {
-		// When sex is a JSON number
-		let jsonNumber = JSON(parseJSON: "{ \"sex\": 1 }")
-		let claimMetadata: [DocClaimMetadata]? = nil
-		let uiCulture: String? = nil
-		let numberClaims = jsonNumber.toClaimsArray(pathPrefix: [], claimMetadata, uiCulture)?.0
-		let numberSex = numberClaims?.first(where: { $0.name == "sex" })
-		#expect(numberSex != nil)
-		#expect(numberSex?.stringValue == "male") // raw value preserved
-		if case .string(let display) = numberSex?.dataValue {
-			#expect(display == "male")
+	@Test("Sex field preserves raw values and formats only numeric display text", arguments: [0, 1, 2, 9])
+	func testSexFieldConversion(value: Int) throws {
+		let expectedDisplay = value <= 2
+			? NSLocalizedString(value == 1 ? "male" : "female", comment: "")
+			: String(value)
+		let numberClaims = JSON(["sex": value]).toClaimsArray(pathPrefix: [], nil, nil)?.0
+		let numberSex = try #require(numberClaims?.first { $0.name == "sex" })
+		#expect(numberSex.stringValue == expectedDisplay)
+		if case .integer(let rawValue) = numberSex.dataValue {
+			#expect(rawValue == UInt64(value))
 		} else {
-			Issue.record("Expected .string data value for sex number claim")
+			Issue.record("Expected .integer data value for sex number claim")
 		}
-		// When sex is a JSON string (Python issuer encodes as string)
-		let jsonString = JSON(parseJSON: "{ \"sex\": \"1\" }")
-		let stringClaims = jsonString.toClaimsArray(pathPrefix: [], claimMetadata, uiCulture)?.0
-		let stringSex = stringClaims?.first(where: { $0.name == "sex" })
-		#expect(stringSex != nil)
-		#expect(stringSex?.stringValue == "male")
-		if case .string(let display) = stringSex?.dataValue {
-			#expect(display == "male")
+
+		// String claims retain their original display text.
+		let stringClaims = JSON(["sex": String(value)]).toClaimsArray(pathPrefix: [], nil, nil)?.0
+		let stringSex = try #require(stringClaims?.first { $0.name == "sex" })
+		#expect(stringSex.stringValue == String(value))
+		if case .string(let rawValue) = stringSex.dataValue {
+			#expect(rawValue == String(value))
 		} else {
 			Issue.record("Expected .string data value for sex string claim")
-		}
-		// Female value
-		let jsonFemale = JSON(parseJSON: "{ \"sex\": \"2\" }")
-		let femaleClaims = jsonFemale.toClaimsArray(pathPrefix: [], claimMetadata, uiCulture)?.0
-		let femaleSex = femaleClaims?.first(where: { $0.name == "sex" })
-		if case .string(let display) = femaleSex?.dataValue {
-			#expect(display == "female")
-		} else {
-			Issue.record("Expected .string data value for female sex claim")
 		}
 	}
 
@@ -522,7 +510,7 @@ struct EudiWalletKitTests {
 		let issuerName = "attested-issuer-\(UUID().uuidString)"
 		let provider = RecordingWalletAttestationsProvider()
 		#if canImport(EudiEtsi1196x2)
-		let trustConfig = TrustConfiguration(trustSource: .etsi(.eudiRef))
+		let trustConfig = TrustConfiguration(trustSource: ReferenceTrustTestFixtures.trustSource)
 		#else
 		let trustConfig = TrustConfiguration(rootIaca: [])
 		#endif
@@ -565,7 +553,7 @@ struct EudiWalletKitTests {
 		let issuerName = "attested-issuer-\(UUID().uuidString)"
 		let provider = ProofCheckingWalletAttestationsProvider()
 		#if canImport(EudiEtsi1196x2)
-		let trustConfig = TrustConfiguration(trustSource: .etsi(.eudiRef))
+		let trustConfig = TrustConfiguration(trustSource: ReferenceTrustTestFixtures.trustSource)
 		#else
 		let trustConfig = TrustConfiguration(rootIaca: [])
 		#endif
@@ -608,7 +596,7 @@ struct EudiWalletKitTests {
 		let provider = RecordingWalletAttestationsProvider()
 		let config = OpenId4VciConfiguration(credentialIssuerURL: issuerURL, keyAttestationsConfig: KeyAttestationConfiguration(walletAttestationsProvider: provider), parUsage: .required(authorizationCodeDPoPBinding: true), requireDpop: true)
 		#if canImport(EudiEtsi1196x2)
-		let trustConfig = TrustConfiguration(trustSource: .etsi(.eudiRef), defaultPolicy: .warning)
+		let trustConfig = TrustConfiguration(trustSource: ReferenceTrustTestFixtures.trustSource, defaultPolicy: .warning)
 		#else
 		let trustConfig = TrustConfiguration(rootIaca: [], defaultPolicy: .warning)
 		#endif

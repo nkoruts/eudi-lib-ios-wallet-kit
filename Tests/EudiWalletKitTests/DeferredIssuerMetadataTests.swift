@@ -30,7 +30,7 @@ extension MetadataCacheTests.DeferredIssuerMetadataTests {
 		let storageService = TestDataStorageService()
 		let config = OpenId4VciConfiguration(credentialIssuerURL: issuerURL, clientId: "wallet-dev", requireDpop: false, issuerMetadataPolicy: .ignoreSigned)
 		#if canImport(EudiEtsi1196x2)
-		let trustConfig = TrustConfiguration(trustSource: .etsi(.eudiRef), defaultPolicy: .warning)
+		let trustConfig = TrustConfiguration(trustSource: ReferenceTrustTestFixtures.trustSource, defaultPolicy: .warning)
 		#else
 		let trustConfig = TrustConfiguration(rootIaca: [], defaultPolicy: .warning)
 		#endif
@@ -42,6 +42,7 @@ extension MetadataCacheTests.DeferredIssuerMetadataTests {
 			configurationIdentifier: try CredentialConfigurationIdentifier(value: "eu.europa.ec.eudi.pid.1"),
 			credentialIssuerIdentifier: issuerURL, vct: "urn:eu:europa:ec:eudi:pid:1",
 			supportsAttestationProofType: false, supportsJwtProofTypeWithAttestation: false,
+			supportsPlainJwtProof: true,
 			credentialSigningAlgValuesSupported: ["ES256"], dpopSigningAlgValuesSupported: nil, clientAttestationPopSigningAlgValuesSupported: nil,
 			issuerDisplay: [], display: [], claims: [], format: .sdjwt,
 			defaultCredentialOptions: CredentialOptions(credentialPolicy: .rotateUse, batchSize: 1))

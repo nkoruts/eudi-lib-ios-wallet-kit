@@ -21,6 +21,8 @@ let config = OpenId4VciConfiguration(
 
 Enabling this flag accepts all supported proof types using ES256, ES384, or ES512. Leave it disabled unless plain JWT proof support is required.
 
+When the issuer offers both attestation and plain JWT proofs, the wallet prefers attestation. If key attestation cannot be obtained, it retries proof generation with the same credential keys using plain JWT proofs, provided this flag is enabled and the issuer’s JWT proof type does not require key attestation. Cancellation and credential request failures do not trigger this fallback.
+
 ### Issue document by docType or credential configuration identifier
 
 When the document docType to be issued use the `issueDocuments(issuerName:docTypeIdentifiers:credentialOptions:keyOptions:promptMessage:)` method.
@@ -183,6 +185,8 @@ The method returns an ``IssuerResponse`` containing the issued documents togethe
 
 The following example shows how to issue documents by offer URL:
 
+Supply the DER-encoded LoTE signer or issuing CA certificates as `loteSignerTrustAnchors` (`[Data]`). For the EUDI reference environment, use the `pidissuerca02_eu.der` development CA.
+
 ```swift
 
 let config = OpenId4VciConfiguration(
@@ -191,7 +195,7 @@ let config = OpenId4VciConfiguration(
   issuerMetadataPolicy: issuerMetadataPolicy
 )
 
-let trustConfig = TrustConfiguration(trustSource: .etsi(.eudiRef), fallbackTrustSource: nil)
+let trustConfig = TrustConfiguration(trustSource: .etsi(.eudiRef(loteSignerTrustAnchors: loteSignerTrustAnchors)), fallbackTrustSource: nil)
 let wallet = try EudiWallet(
   eudiWalletConfig: EudiWalletConfiguration(),
   trustConfig: trustConfig,
